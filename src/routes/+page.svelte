@@ -10,9 +10,12 @@
   import FileTree from '../components/FileTree.svelte';
   import SearchPanel from '../components/SearchPanel.svelte';
   import GitPanel from '../components/GitPanel.svelte';
+  import TocPanel from '../components/TocPanel.svelte';
   import Tabs from '../components/Tabs.svelte';
+  import MarkdownToolbar from '../components/MarkdownToolbar.svelte';
   import Editor from '../components/Editor.svelte';
   import Preview from '../components/Preview.svelte';
+  import MermaidEditor from '../components/MermaidEditor.svelte';
   import StatusBar from '../components/StatusBar.svelte';
   import Toast from '../components/Toast.svelte';
 
@@ -24,8 +27,19 @@
   let theme: Theme = $state('dark');
 
   // --- Sidebar mode ---
-  type SidebarMode = 'files' | 'search' | 'git';
+  type SidebarMode = 'files' | 'search' | 'git' | 'toc';
   let sidebarMode: SidebarMode = $state('files');
+
+  // --- Sync scroll ---
+  let scrollFraction = $state<number | undefined>(undefined);
+  let scrollSource = $state<'editor' | 'preview' | null>(null);
+
+  // --- Markdown toolbar ---
+  let insertCommand = $state<{ type: string; timestamp: number } | null>(null);
+
+  // --- Mermaid editor ---
+  let mermaidEditorOpen = $state(false);
+  let mermaidEditorCode = $state('');
 
   // --- Tabs (open files) ---
   interface OpenFile {
@@ -293,6 +307,112 @@
     draggingSplitter = null;
   }
 
+  // --- Sync scroll handlers ---
+  function handleEditorScroll(fraction: number) {
+    if (scrollSource === 'preview') return;
+    scrollSource = 'editor';
+    scrollFraction = fraction;
+    queueMicrotask(() => { scrollSource = null; });
+  }
+
+  function handlePreviewScroll(fraction: number) {
+    if (scrollSource === 'editor') return;
+    scrollSource = 'preview';
+    scrollFraction = fraction;
+    queueMicrotask(() => { scrollSource = null; });
+  }
+
+  // --- Markdown toolbar ---
+  function handleToolbarInsert(type: string) {
+    insertCommand = { type, timestamp: Date.now() };
+  }
+
+  // --- File operations ---
+  async function handleRenameFile(oldPath: string, newPath: string) {
+    try {
+      await invoke('rename_file', { oldPath, newPath });
+      // Update open tabs if renamed file is open
+      const idx = openFiles.findIndex(f => f.path === oldPath);
+      if (idx !== -1) {
+        openFiles[idx].path = newPath;
+        openFiles[idx].name = newPath.split(/[\\/]/).pop() ?? newPath;
+      }
+      if (currentFile === oldPath) currentFile = newPath;
+      if (currentFolder) {
+        fileTree = await invoke<FileEntry[]>('read_directory', { path: currentFolder });
+      }
+      toastManager.success('File renamed');
+    } catch (err) {
+      toastManager.error('Failed to rename file');
+    }
+  }
+
+  async function handleDeleteFile(path: string) {
+    try {
+      await invoke('delete_file', { path });
+      // Close tab if open
+      handleCloseTab(path);
+      if (currentFolder) {
+        fileTree = await invoke<FileEntry[]>('read_directory', { path: currentFolder });
+      }
+      toastManager.success('File deleted');
+    } catch (err) {
+      toastManager.error('Failed to delete file');
+    }
+  }
+
+  async function handleCreateFile(folderPath: string) {
+    const newPath = folderPath + '\\new-file.md';
+    try {
+      await invoke('create_file', { path: newPath });
+      if (currentFolder) {
+        fileTree = await invoke<FileEntry[]>('read_directory', { path: currentFolder });
+      }
+      await handleFileSelect(newPath);
+      toastManager.success('File created');
+    } catch (err) {
+      toastManager.error('Failed to create file');
+    }
+  }
+
+  // --- Image paste ---
+  async function handleImagePaste(file: File) {
+    if (!currentFolder || !currentFile) return;
+    try {
+      const arrayBuf = await file.arrayBuffer();
+      const data = Array.from(new Uint8Array(arrayBuf));
+      const ext = file.type.split('/')[1] || 'png';
+      const filename = `image-${Date.now()}.${ext}`;
+      const savedPath: string = await invoke('save_image', {
+        folder: currentFolder,
+        filename,
+        data,
+      });
+      // Insert markdown image link relative to assets folder
+      insertCommand = { type: '__raw:![image](assets/' + filename + ')', timestamp: Date.now() };
+    } catch (err) {
+      toastManager.error('Failed to paste image');
+    }
+  }
+
+  // --- Mermaid editor ---
+  function openMermaidEditor() {
+    mermaidEditorCode = '```mermaid\ngraph TD\n    A[Start] --> B[End]\n```';
+    mermaidEditorOpen = true;
+  }
+
+  function handleMermaidSave(code: string) {
+    // Insert the mermaid code block at cursor
+    insertCommand = { type: '__raw:\n```mermaid\n' + code + '\n```\n', timestamp: Date.now() };
+    mermaidEditorOpen = false;
+  }
+
+  // --- ToC navigate ---
+  function handleTocNavigate(line: number) {
+    // Navigate to line in editor - use insertCommand with special type
+    insertCommand = { type: '__goto:' + line, timestamp: Date.now() };
+  }
+
   // --- Keyboard shortcuts ---
   function handleKeydown(e: KeyboardEvent) {
     // Ctrl+O — open folder
@@ -365,6 +485,11 @@
           class:active={sidebarMode === 'git'}
           onclick={() => sidebarMode = 'git'}
         >Git</button>
+        <button
+          class="sidebar-tab"
+          class:active={sidebarMode === 'toc'}
+          onclick={() => sidebarMode = 'toc'}
+        >ToC</button>
       </div>
       <div class="sidebar-content">
         {#if sidebarMode === 'files'}
@@ -372,6 +497,9 @@
             fileTree={fileTree}
             currentFile={currentFile}
             onFileSelect={handleFileSelect}
+            onRenameFile={handleRenameFile}
+            onDeleteFile={handleDeleteFile}
+            onCreateFile={handleCreateFile}
           />
         {:else if sidebarMode === 'search'}
           <SearchPanel
@@ -380,6 +508,11 @@
           />
         {:else if sidebarMode === 'git'}
           <GitPanel currentFolder={currentFolder} />
+        {:else if sidebarMode === 'toc'}
+          <TocPanel
+            {content}
+            onNavigate={handleTocNavigate}
+          />
         {/if}
       </div>
     </div>
@@ -395,11 +528,16 @@
 
     <div class="editor-panel">
       {#if currentFile}
+        <MarkdownToolbar onInsert={handleToolbarInsert} />
         <Editor
           {content}
           onContentChange={handleContentChange}
           {theme}
           onSave={handleSave}
+          onScrollChange={handleEditorScroll}
+          scrollFraction={scrollSource === 'preview' ? scrollFraction : undefined}
+          {insertCommand}
+          onImagePaste={handleImagePaste}
         />
       {:else}
         <div class="panel-placeholder">Select a file to edit</div>
@@ -417,7 +555,12 @@
 
     <div class="preview-panel">
       {#if currentFile}
-        <Preview {content} {theme} />
+        <Preview
+          {content}
+          {theme}
+          onScrollChange={handlePreviewScroll}
+          scrollFraction={scrollSource === 'editor' ? scrollFraction : undefined}
+        />
       {:else}
         <div class="panel-placeholder">Preview will appear here</div>
       {/if}
@@ -433,6 +576,15 @@
     />
   </div>
 </div>
+
+{#if mermaidEditorOpen}
+  <MermaidEditor
+    initialCode="graph TD\n    A[Start] --> B[End]"
+    onSave={handleMermaidSave}
+    onClose={() => mermaidEditorOpen = false}
+    {theme}
+  />
+{/if}
 
 <Toast />
 

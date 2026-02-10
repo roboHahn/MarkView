@@ -135,3 +135,73 @@ pub fn write_file(path: String, content: String) -> Result<(), String> {
     fs::write(&file_path, content)
         .map_err(|e| format!("Failed to write '{}': {}", path, e))
 }
+
+/// Renames (or moves) a file from `old_path` to `new_path`.
+/// Returns an error if `old_path` doesn't exist or `new_path` already exists.
+#[tauri::command]
+pub fn rename_file(old_path: String, new_path: String) -> Result<(), String> {
+    let source = PathBuf::from(&old_path);
+    let dest = PathBuf::from(&new_path);
+
+    if !source.exists() {
+        return Err(format!("Source file '{}' does not exist", old_path));
+    }
+    if dest.exists() {
+        return Err(format!("Destination '{}' already exists", new_path));
+    }
+
+    fs::rename(&source, &dest)
+        .map_err(|e| format!("Failed to rename '{}' to '{}': {}", old_path, new_path, e))
+}
+
+/// Deletes the file at `path`.
+/// Returns an error if the file doesn't exist.
+#[tauri::command]
+pub fn delete_file(path: String) -> Result<(), String> {
+    let file_path = PathBuf::from(&path);
+
+    if !file_path.exists() {
+        return Err(format!("File '{}' does not exist", path));
+    }
+
+    fs::remove_file(&file_path)
+        .map_err(|e| format!("Failed to delete '{}': {}", path, e))
+}
+
+/// Creates a new empty file at `path`.
+/// Returns an error if the file already exists.
+/// Parent directories are created automatically if they don't exist.
+#[tauri::command]
+pub fn create_file(path: String) -> Result<(), String> {
+    let file_path = PathBuf::from(&path);
+
+    if file_path.exists() {
+        return Err(format!("File '{}' already exists", path));
+    }
+
+    if let Some(parent) = file_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create directories for '{}': {}", path, e))?;
+    }
+
+    fs::write(&file_path, "")
+        .map_err(|e| format!("Failed to create file '{}': {}", path, e))
+}
+
+/// Saves image data to `{folder}/assets/{filename}`.
+/// Creates the `assets` subdirectory if it doesn't exist.
+/// Returns the full path of the saved image.
+#[tauri::command]
+pub fn save_image(folder: String, filename: String, data: Vec<u8>) -> Result<String, String> {
+    let assets_dir = PathBuf::from(&folder).join("assets");
+
+    fs::create_dir_all(&assets_dir)
+        .map_err(|e| format!("Failed to create assets directory in '{}': {}", folder, e))?;
+
+    let file_path = assets_dir.join(&filename);
+
+    fs::write(&file_path, &data)
+        .map_err(|e| format!("Failed to save image '{}': {}", filename, e))?;
+
+    Ok(file_path.to_string_lossy().to_string())
+}

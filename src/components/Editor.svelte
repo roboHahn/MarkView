@@ -5,6 +5,7 @@
   import { oneDark } from '@codemirror/theme-one-dark';
   import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
   import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language';
+  import { search, searchKeymap, openSearchPanel } from '@codemirror/search';
   import type { Theme } from '$lib/theme';
   import '../styles/codemirror.css';
 
@@ -13,9 +14,22 @@
     onContentChange: (newContent: string) => void;
     theme: Theme;
     onSave: () => void;
+    onScrollChange?: (fraction: number) => void;
+    scrollFraction?: number;
+    insertCommand?: { type: string; timestamp: number } | null;
+    onImagePaste?: (file: File) => void;
   }
 
-  let { content, onContentChange, theme, onSave }: Props = $props();
+  let {
+    content,
+    onContentChange,
+    theme,
+    onSave,
+    onScrollChange,
+    scrollFraction,
+    insertCommand,
+    onImagePaste
+  }: Props = $props();
 
   let editorContainer: HTMLDivElement | undefined = $state(undefined);
   let editorView: EditorView | undefined = $state(undefined);
@@ -24,6 +38,10 @@
   // Track whether we are currently dispatching an internal update,
   // so we can ignore the external content prop echo.
   let isInternalUpdate = false;
+
+  // Track whether scroll originated from within the editor,
+  // to prevent feedback loops when syncing scroll position.
+  let isInternalScroll = false;
 
   function getThemeExtension(currentTheme: Theme) {
     if (currentTheme === 'dark') {
@@ -45,6 +63,112 @@
     });
   }
 
+  function prefixLine(view: EditorView, prefix: string) {
+    const { from, to } = view.state.selection.main;
+    const line = view.state.doc.lineAt(from);
+    view.dispatch({
+      changes: { from: line.from, to: line.from, insert: prefix }
+    });
+  }
+
+  function insertAtCursor(view: EditorView, text: string, cursorOffset?: number) {
+    const { from, to } = view.state.selection.main;
+    view.dispatch({
+      changes: { from, to, insert: text },
+      selection: {
+        anchor: from + (cursorOffset ?? text.length)
+      }
+    });
+  }
+
+  function handleInsertCommand(view: EditorView, type: string) {
+    const { from, to } = view.state.selection.main;
+    const selectedText = view.state.sliceDoc(from, to);
+
+    switch (type) {
+      case 'bold':
+        wrapSelection(view, '**');
+        break;
+      case 'italic':
+        wrapSelection(view, '*');
+        break;
+      case 'heading':
+        prefixLine(view, '## ');
+        break;
+      case 'link': {
+        const linkText = selectedText || 'text';
+        const replacement = `[${linkText}](url)`;
+        view.dispatch({
+          changes: { from, to, insert: replacement },
+          selection: {
+            anchor: from + linkText.length + 3,
+            head: from + linkText.length + 6
+          }
+        });
+        break;
+      }
+      case 'image': {
+        const altText = selectedText || 'alt text';
+        const replacement = `![${altText}](url)`;
+        view.dispatch({
+          changes: { from, to, insert: replacement },
+          selection: {
+            anchor: from + altText.length + 4,
+            head: from + altText.length + 7
+          }
+        });
+        break;
+      }
+      case 'code':
+        wrapSelection(view, '`');
+        break;
+      case 'codeblock': {
+        const codeContent = selectedText || '';
+        const replacement = `\`\`\`\n${codeContent}\n\`\`\``;
+        view.dispatch({
+          changes: { from, to, insert: replacement },
+          selection: {
+            anchor: from + 4,
+            head: from + 4 + codeContent.length
+          }
+        });
+        break;
+      }
+      case 'list':
+        prefixLine(view, '- ');
+        break;
+      case 'orderedlist':
+        prefixLine(view, '1. ');
+        break;
+      case 'quote':
+        prefixLine(view, '> ');
+        break;
+      case 'hr':
+        insertAtCursor(view, '\n---\n');
+        break;
+      default:
+        // Handle __raw: prefix — insert raw text at cursor
+        if (type.startsWith('__raw:')) {
+          const rawText = type.slice(6);
+          insertAtCursor(view, rawText);
+        }
+        // Handle __goto: prefix — scroll to line number
+        if (type.startsWith('__goto:')) {
+          const lineNum = parseInt(type.slice(7), 10);
+          if (!isNaN(lineNum) && lineNum > 0) {
+            const line = view.state.doc.line(Math.min(lineNum, view.state.doc.lines));
+            view.dispatch({
+              selection: { anchor: line.from },
+              effects: EditorView.scrollIntoView(line.from, { y: 'center' }),
+            });
+          }
+        }
+        break;
+    }
+
+    view.focus();
+  }
+
   // Create the editor when the container element is available
   $effect(() => {
     if (!editorContainer) return;
@@ -54,11 +178,13 @@
       extensions: [
         markdown(),
         history(),
+        search(),
         EditorView.lineWrapping,
         themeCompartment.of(getThemeExtension(theme)),
         keymap.of([
           ...defaultKeymap,
           ...historyKeymap,
+          ...searchKeymap,
           {
             key: 'Mod-s',
             run: () => {
@@ -90,6 +216,39 @@
             queueMicrotask(() => {
               isInternalUpdate = false;
             });
+          }
+        }),
+        EditorView.domEventHandlers({
+          scroll(event, view) {
+            if (onScrollChange) {
+              const scrollDOM = view.scrollDOM;
+              const maxScroll = scrollDOM.scrollHeight - scrollDOM.clientHeight;
+              const fraction = maxScroll > 0 ? scrollDOM.scrollTop / maxScroll : 0;
+              isInternalScroll = true;
+              onScrollChange(fraction);
+              queueMicrotask(() => {
+                isInternalScroll = false;
+              });
+            }
+          },
+          paste(event, view) {
+            if (!onImagePaste) return false;
+            const clipboardData = event.clipboardData;
+            if (!clipboardData) return false;
+
+            const items = clipboardData.items;
+            for (let i = 0; i < items.length; i++) {
+              const item = items[i];
+              if (item.type.startsWith('image/')) {
+                const file = item.getAsFile();
+                if (file) {
+                  event.preventDefault();
+                  onImagePaste(file);
+                  return true;
+                }
+              }
+            }
+            return false;
           }
         })
       ]
@@ -137,6 +296,28 @@
     editorView.dispatch({
       effects: themeCompartment.reconfigure(getThemeExtension(currentTheme))
     });
+  });
+
+  // Sync external scroll fraction into the editor
+  $effect(() => {
+    const fraction = scrollFraction;
+
+    if (!editorView || fraction === undefined || isInternalScroll) return;
+
+    const scrollDOM = editorView.scrollDOM;
+    const maxScroll = scrollDOM.scrollHeight - scrollDOM.clientHeight;
+    if (maxScroll > 0) {
+      scrollDOM.scrollTop = fraction * maxScroll;
+    }
+  });
+
+  // React to insert commands from toolbar
+  $effect(() => {
+    const command = insertCommand;
+
+    if (!editorView || !command) return;
+
+    handleInsertCommand(editorView, command.type);
   });
 </script>
 

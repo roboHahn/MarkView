@@ -8,9 +8,31 @@
   interface Props {
     content: string;
     theme: Theme;
+    onScrollChange?: (fraction: number) => void;
+    scrollFraction?: number;
   }
 
-  let { content, theme }: Props = $props();
+  let { content, theme, onScrollChange, scrollFraction }: Props = $props();
+
+  let isInternalScroll = false;
+
+  function handleScroll() {
+    if (!previewContainer || !onScrollChange) return;
+    const maxScroll = previewContainer.scrollHeight - previewContainer.clientHeight;
+    const fraction = maxScroll > 0 ? previewContainer.scrollTop / maxScroll : 0;
+    isInternalScroll = true;
+    onScrollChange(fraction);
+    queueMicrotask(() => { isInternalScroll = false; });
+  }
+
+  $effect(() => {
+    const f = scrollFraction;
+    if (!previewContainer || f === undefined || isInternalScroll) return;
+    const maxScroll = previewContainer.scrollHeight - previewContainer.clientHeight;
+    if (maxScroll > 0) {
+      previewContainer.scrollTop = f * maxScroll;
+    }
+  });
 
   let renderedHtml = $state('');
   let previewContainer: HTMLDivElement | undefined = $state(undefined);
@@ -63,7 +85,7 @@
   });
 </script>
 
-<div class="preview-panel" bind:this={previewContainer}>
+<div class="preview-panel" bind:this={previewContainer} onscroll={handleScroll}>
   <div class="preview-content">
     {@html renderedHtml}
   </div>
