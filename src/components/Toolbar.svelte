@@ -21,10 +21,21 @@
 <div class="toolbar">
   <div class="toolbar-left">
     <button class="toolbar-btn" onclick={onOpenFolder}>
-      Open Folder
+      <svg viewBox="0 0 16 16" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M1 3v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H7L5.5 2H2a1 1 0 0 0-1 1z" />
+        <path d="M6 8h4" />
+        <path d="M8 6v4" />
+      </svg>
+      <span>Open</span>
     </button>
     <button class="toolbar-btn" onclick={onSave} disabled={!currentFile}>
-      Save
+      <svg viewBox="0 0 16 16" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M2 2a1 1 0 0 1 1-1h8l4 4v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V2z" />
+        <path d="M11 1v4H6V1" />
+        <path d="M5 9h6" />
+        <path d="M5 12h6" />
+      </svg>
+      <span>Save</span>
     </button>
     <ExportMenu {content} {currentFile} {theme} />
   </div>
@@ -60,6 +71,9 @@
   }
 
   .toolbar-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     padding: 4px 12px;
     border: 1px solid var(--border);
     border-radius: 4px;

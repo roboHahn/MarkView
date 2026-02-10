@@ -535,11 +535,11 @@
     />
     <div class="toolbar-extra">
       <button class="extra-btn" onclick={() => sidebarVisible = !sidebarVisible} title="Toggle Sidebar (Ctrl+B)">
-        {sidebarVisible ? '◀' : '▶'}
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="2" width="14" height="12" rx="2" /><line x1="6" y1="2" x2="6" y2="14" /></svg>
       </button>
       <div class="extra-btn-group">
         <button class="extra-btn" onclick={() => recentFilesOpen = !recentFilesOpen} title="Recent Files">
-          Recent
+          <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.5" /><polyline points="8,4 8,8 11,10" /></svg>
         </button>
         {#if recentFilesOpen}
           <RecentFiles
@@ -559,20 +559,20 @@
       </div>
       <div class="extra-btn-group">
         <button class="extra-btn" onclick={() => snippetMenuOpen = !snippetMenuOpen} title="Snippets">
-          Snippets
+          <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4,4 1,8 4,12" /><polyline points="12,4 15,8 12,12" /><line x1="10" y1="3" x2="6" y2="13" /></svg>
         </button>
         {#if snippetMenuOpen}
           <SnippetMenu onInsert={handleSnippetInsert} onClose={() => snippetMenuOpen = false} />
         {/if}
       </div>
       <button class="extra-btn" onclick={() => { if (currentFile && currentFolder) diffViewOpen = true; }} disabled={!currentFile} title="Git Diff (Ctrl+D)">
-        Diff
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="1" x2="8" y2="15" /><line x1="3" y1="5" x2="6" y2="5" /><line x1="3" y1="8" x2="6" y2="8" /><line x1="10" y1="8" x2="13" y2="8" /><line x1="11.5" y1="6" x2="11.5" y2="10" /><line x1="3" y1="11" x2="6" y2="11" /></svg>
       </button>
       <button class="extra-btn" onclick={() => settingsOpen = true} title="Settings">
-        ⚙
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.5" /><path d="M8 1.5l.7 2.1a4.5 4.5 0 011.7 1l2.1-.7 1 1.7-1.4 1.5a4.5 4.5 0 010 1.8l1.4 1.5-1 1.7-2.1-.7a4.5 4.5 0 01-1.7 1L8 14.5l-1.7 0-.7-2.1a4.5 4.5 0 01-1.7-1l-2.1.7-1-1.7 1.4-1.5a4.5 4.5 0 010-1.8L.8 5.6l1-1.7 2.1.7a4.5 4.5 0 011.7-1L6.3 1.5z" /></svg>
       </button>
       <button class="extra-btn" onclick={() => zenMode = true} title="Zen Mode (F11)">
-        ⛶
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1,5 1,1 5,1" /><polyline points="11,1 15,1 15,5" /><polyline points="15,11 15,15 11,15" /><polyline points="5,15 1,15 1,11" /></svg>
       </button>
     </div>
   </div>
@@ -596,22 +596,26 @@
           class="sidebar-tab"
           class:active={sidebarMode === 'files'}
           onclick={() => sidebarMode = 'files'}
-        >Files</button>
+          title="Files"
+        ><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 3a1 1 0 011-1h4l2 2h5a1 1 0 011 1v7a1 1 0 01-1 1H2a1 1 0 01-1-1z" /></svg></button>
         <button
           class="sidebar-tab"
           class:active={sidebarMode === 'search'}
           onclick={() => sidebarMode = 'search'}
-        >Search</button>
+          title="Search"
+        ><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.5" cy="6.5" r="4.5" /><line x1="10" y1="10" x2="14.5" y2="14.5" /></svg></button>
         <button
           class="sidebar-tab"
           class:active={sidebarMode === 'git'}
           onclick={() => sidebarMode = 'git'}
-        >Git</button>
+          title="Git"
+        ><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="4" cy="4" r="2" /><circle cx="4" cy="13" r="2" /><circle cx="12" cy="7" r="2" /><line x1="4" y1="6" x2="4" y2="11" /><path d="M4 6c0 2 2 3 4 3h2" /></svg></button>
         <button
           class="sidebar-tab"
           class:active={sidebarMode === 'toc'}
           onclick={() => sidebarMode = 'toc'}
-        >ToC</button>
+          title="Table of Contents"
+        ><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="3" x2="14" y2="3" /><line x1="5" y1="6.5" x2="14" y2="6.5" /><line x1="5" y1="10" x2="14" y2="10" /><line x1="3" y1="13.5" x2="14" y2="13.5" /></svg></button>
       </div>
       <div class="sidebar-content">
         {#if sidebarMode === 'files'}
@@ -776,6 +780,9 @@
     letter-spacing: 0.5px;
     cursor: pointer;
     transition: color 0.15s, border-color 0.15s, background 0.15s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .sidebar-tab:hover {
@@ -857,6 +864,9 @@
     font-size: 12px;
     cursor: pointer;
     transition: background 0.15s, border-color 0.15s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .extra-btn:hover:not(:disabled) {
