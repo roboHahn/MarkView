@@ -44,6 +44,7 @@
     { id: 'tools.settings', name: 'Settings', category: 'Tools' },
     { id: 'tools.emojiPicker', name: 'Emoji Picker', category: 'Tools' },
     { id: 'tools.snippets', name: 'Snippets', category: 'Tools' },
+    { id: 'tools.mermaid', name: 'Mermaid Editor', category: 'Tools' },
     { id: 'tools.exportHtml', name: 'Export HTML', category: 'Tools' },
     { id: 'tools.printPdf', name: 'Print/PDF', category: 'Tools' },
     // Navigate
