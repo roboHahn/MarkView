@@ -1,0 +1,17 @@
+.cm-editor {
+  height: 100%;
+  font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
+  font-size: 14px;
+}
+
+.cm-editor .cm-scroller {
+  overflow: auto;
+}
+
+.cm-editor.cm-focused {
+  outline: none;
+}
+
+[data-theme="light"] .cm-editor {
+  background-color: var(--bg-editor);
+}

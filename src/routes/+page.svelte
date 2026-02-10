@@ -1,0 +1,545 @@
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { invoke } from '@tauri-apps/api/core';
+  import { open } from '@tauri-apps/plugin-dialog';
+  import { getInitialTheme, setTheme, toggleTheme, type Theme } from '$lib/theme';
+  import { toastManager } from '$lib/toast.svelte';
+  import { startWatching, stopWatching, type FileChangeEvent } from '$lib/watcher';
+  import type { FileEntry } from '$lib/types';
+  import Toolbar from '../components/Toolbar.svelte';
+  import FileTree from '../components/FileTree.svelte';
+  import SearchPanel from '../components/SearchPanel.svelte';
+  import GitPanel from '../components/GitPanel.svelte';
+  import Tabs from '../components/Tabs.svelte';
+  import Editor from '../components/Editor.svelte';
+  import Preview from '../components/Preview.svelte';
+  import StatusBar from '../components/StatusBar.svelte';
+  import Toast from '../components/Toast.svelte';
+
+  // --- App State ---
+  let currentFolder: string | null = $state(null);
+  let currentFile: string | null = $state(null);
+  let fileTree: FileEntry[] = $state([]);
+  let content: string = $state('');
+  let theme: Theme = $state('dark');
+
+  // --- Sidebar mode ---
+  type SidebarMode = 'files' | 'search' | 'git';
+  let sidebarMode: SidebarMode = $state('files');
+
+  // --- Tabs (open files) ---
+  interface OpenFile {
+    path: string;
+    name: string;
+    content: string;
+    originalContent: string;
+  }
+  let openFiles: OpenFile[] = $state([]);
+
+  let openFileTabs = $derived(
+    openFiles.map(f => ({
+      path: f.path,
+      name: f.name,
+      modified: f.content !== f.originalContent,
+    }))
+  );
+
+  // --- Panel sizing ---
+  let fileTreeWidth = $state(220);
+  let editorFraction = $state(0.5);
+
+  // --- Splitter dragging ---
+  let draggingSplitter: 'tree' | 'editor' | null = $state(null);
+  let containerEl: HTMLDivElement | undefined = $state(undefined);
+
+  const MIN_TREE = 150;
+  const MIN_EDITOR = 200;
+  const MIN_PREVIEW = 200;
+  const SPLITTER_WIDTH = 4;
+
+  let editorFr = $derived(Math.round(editorFraction * 1000));
+  let previewFr = $derived(Math.round((1 - editorFraction) * 1000));
+  let gridColumns = $derived(
+    `${fileTreeWidth}px ${SPLITTER_WIDTH}px ${editorFr}fr ${SPLITTER_WIDTH}px ${previewFr}fr`
+  );
+
+  // --- Lifecycle ---
+  onMount(() => {
+    theme = getInitialTheme();
+    setTheme(theme);
+
+    return () => {
+      stopWatching().catch(() => {});
+    };
+  });
+
+  // --- Handlers ---
+  async function handleOpenFolder() {
+    const selected = await open({ directory: true, multiple: false });
+    if (selected && typeof selected === 'string') {
+      // Stop previous watcher
+      await stopWatching().catch(() => {});
+
+      currentFolder = selected;
+      currentFile = null;
+      content = '';
+      openFiles = [];
+      sidebarMode = 'files';
+
+      try {
+        fileTree = await invoke<FileEntry[]>('read_directory', { path: selected });
+      } catch (err) {
+        toastManager.error('Failed to read directory');
+        fileTree = [];
+      }
+
+      // Start file watcher
+      startWatching(selected, handleFileChanges).catch(() => {});
+    }
+  }
+
+  async function handleFileSelect(path: string) {
+    // Check if file is already open in tabs
+    const existing = openFiles.find(f => f.path === path);
+    if (existing) {
+      currentFile = path;
+      content = existing.content;
+      return;
+    }
+
+    try {
+      const fileContent = await invoke<string>('read_file', { path });
+      const name = path.split(/[\\/]/).pop() ?? path;
+
+      openFiles = [...openFiles, {
+        path,
+        name,
+        content: fileContent,
+        originalContent: fileContent,
+      }];
+
+      currentFile = path;
+      content = fileContent;
+    } catch (err) {
+      toastManager.error('Failed to read file');
+    }
+  }
+
+  function handleSelectTab(path: string) {
+    const file = openFiles.find(f => f.path === path);
+    if (file) {
+      currentFile = path;
+      content = file.content;
+    }
+  }
+
+  function handleCloseTab(path: string) {
+    openFiles = openFiles.filter(f => f.path !== path);
+    if (currentFile === path) {
+      const next = openFiles.length > 0 ? openFiles[openFiles.length - 1] : null;
+      if (next) {
+        currentFile = next.path;
+        content = next.content;
+      } else {
+        currentFile = null;
+        content = '';
+      }
+    }
+  }
+
+  function handleContentChange(newContent: string) {
+    content = newContent;
+    // Update the content in the open files array
+    const idx = openFiles.findIndex(f => f.path === currentFile);
+    if (idx !== -1) {
+      openFiles[idx].content = newContent;
+    }
+  }
+
+  async function handleSave() {
+    if (!currentFile) return;
+    try {
+      await invoke('write_file', { path: currentFile, content });
+      // Update original content to mark as saved
+      const idx = openFiles.findIndex(f => f.path === currentFile);
+      if (idx !== -1) {
+        openFiles[idx].originalContent = content;
+      }
+      toastManager.success('File saved');
+    } catch (err) {
+      toastManager.error('Failed to save file');
+    }
+  }
+
+  function handleToggleTheme() {
+    theme = toggleTheme(theme);
+  }
+
+  // --- File watcher ---
+  async function handleFileChanges(changes: FileChangeEvent[]) {
+    let needsTreeRefresh = false;
+
+    for (const change of changes) {
+      if (change.change_type === 'created' || change.change_type === 'deleted') {
+        needsTreeRefresh = true;
+      }
+
+      // Reload content if the currently open file was modified externally
+      if (change.change_type === 'modified' && change.path === currentFile) {
+        try {
+          const newContent = await invoke<string>('read_file', { path: change.path });
+          const file = openFiles.find(f => f.path === change.path);
+          if (file && file.content === file.originalContent) {
+            // Only auto-reload if user hasn't made unsaved changes
+            content = newContent;
+            file.content = newContent;
+            file.originalContent = newContent;
+            toastManager.info('File reloaded (external change)');
+          }
+        } catch { /* ignore */ }
+      }
+    }
+
+    if (needsTreeRefresh && currentFolder) {
+      try {
+        fileTree = await invoke<FileEntry[]>('read_directory', { path: currentFolder });
+      } catch { /* ignore */ }
+    }
+  }
+
+  // --- Drag & Drop ---
+  function handleDragOver(e: DragEvent) {
+    e.preventDefault();
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = 'copy';
+    }
+  }
+
+  async function handleDrop(e: DragEvent) {
+    e.preventDefault();
+    if (!e.dataTransfer?.files.length) return;
+
+    const file = e.dataTransfer.files[0];
+    const path = (file as any).path as string | undefined;
+
+    if (!path) return;
+
+    // Check if it's a directory or a .md file
+    if (path.toLowerCase().endsWith('.md')) {
+      await handleFileSelect(path);
+    } else {
+      // Try to open as folder
+      try {
+        await stopWatching().catch(() => {});
+        currentFolder = path;
+        currentFile = null;
+        content = '';
+        openFiles = [];
+        fileTree = await invoke<FileEntry[]>('read_directory', { path });
+        startWatching(path, handleFileChanges).catch(() => {});
+        toastManager.success('Folder opened');
+      } catch {
+        toastManager.error('Could not open as folder');
+      }
+    }
+  }
+
+  // --- Splitter drag logic ---
+  function onSplitterPointerDown(which: 'tree' | 'editor', e: PointerEvent) {
+    draggingSplitter = which;
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    e.preventDefault();
+  }
+
+  function onSplitterPointerMove(e: PointerEvent) {
+    if (!draggingSplitter || !containerEl) return;
+
+    const rect = containerEl.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const totalWidth = rect.width;
+
+    if (draggingSplitter === 'tree') {
+      let newTreeWidth = x;
+      const remaining = totalWidth - newTreeWidth - SPLITTER_WIDTH * 2;
+      const editorWidth = remaining * editorFraction;
+      const previewWidth = remaining * (1 - editorFraction);
+
+      if (newTreeWidth < MIN_TREE) newTreeWidth = MIN_TREE;
+      if (editorWidth < MIN_EDITOR || previewWidth < MIN_PREVIEW) {
+        const maxTree = totalWidth - SPLITTER_WIDTH * 2 - MIN_EDITOR - MIN_PREVIEW;
+        if (newTreeWidth > maxTree) newTreeWidth = maxTree;
+      }
+      fileTreeWidth = newTreeWidth;
+    } else if (draggingSplitter === 'editor') {
+      const editorStart = fileTreeWidth + SPLITTER_WIDTH;
+      const remaining = totalWidth - editorStart - SPLITTER_WIDTH;
+      const editorWidth = x - editorStart;
+      let newFraction = editorWidth / remaining;
+
+      if (editorWidth < MIN_EDITOR) {
+        newFraction = MIN_EDITOR / remaining;
+      }
+      const previewWidth = remaining * (1 - newFraction);
+      if (previewWidth < MIN_PREVIEW) {
+        newFraction = 1 - MIN_PREVIEW / remaining;
+      }
+
+      newFraction = Math.max(0.1, Math.min(0.9, newFraction));
+      editorFraction = newFraction;
+    }
+  }
+
+  function onSplitterPointerUp() {
+    draggingSplitter = null;
+  }
+
+  // --- Keyboard shortcuts ---
+  function handleKeydown(e: KeyboardEvent) {
+    // Ctrl+O — open folder
+    if ((e.ctrlKey || e.metaKey) && e.key === 'o') {
+      e.preventDefault();
+      handleOpenFolder();
+    }
+    // Ctrl+Shift+P — toggle preview (future)
+    // Ctrl+, — toggle theme
+    if ((e.ctrlKey || e.metaKey) && e.key === ',') {
+      e.preventDefault();
+      handleToggleTheme();
+    }
+    // Ctrl+Shift+F — focus search
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'F') {
+      e.preventDefault();
+      sidebarMode = 'search';
+    }
+  }
+</script>
+
+<svelte:window onkeydown={handleKeydown} />
+
+<div
+  class="app-layout"
+  bind:this={containerEl}
+  onpointermove={onSplitterPointerMove}
+  onpointerup={onSplitterPointerUp}
+  ondragover={handleDragOver}
+  ondrop={handleDrop}
+  role="application"
+>
+  <div class="toolbar-area">
+    <Toolbar
+      onOpenFolder={handleOpenFolder}
+      onSave={handleSave}
+      currentFolder={currentFolder}
+      currentFile={currentFile}
+      {content}
+      {theme}
+    />
+  </div>
+
+  {#if openFiles.length > 0}
+    <div class="tabs-area">
+      <Tabs
+        openFiles={openFileTabs}
+        activeFile={currentFile}
+        onSelectTab={handleSelectTab}
+        onCloseTab={handleCloseTab}
+      />
+    </div>
+  {/if}
+
+  <div class="main-area" style="grid-template-columns: {gridColumns}">
+    <div class="sidebar-panel">
+      <div class="sidebar-tabs">
+        <button
+          class="sidebar-tab"
+          class:active={sidebarMode === 'files'}
+          onclick={() => sidebarMode = 'files'}
+        >Files</button>
+        <button
+          class="sidebar-tab"
+          class:active={sidebarMode === 'search'}
+          onclick={() => sidebarMode = 'search'}
+        >Search</button>
+        <button
+          class="sidebar-tab"
+          class:active={sidebarMode === 'git'}
+          onclick={() => sidebarMode = 'git'}
+        >Git</button>
+      </div>
+      <div class="sidebar-content">
+        {#if sidebarMode === 'files'}
+          <FileTree
+            fileTree={fileTree}
+            currentFile={currentFile}
+            onFileSelect={handleFileSelect}
+          />
+        {:else if sidebarMode === 'search'}
+          <SearchPanel
+            currentFolder={currentFolder}
+            onFileSelect={handleFileSelect}
+          />
+        {:else if sidebarMode === 'git'}
+          <GitPanel currentFolder={currentFolder} />
+        {/if}
+      </div>
+    </div>
+
+    <div
+      class="splitter"
+      class:active={draggingSplitter === 'tree'}
+      onpointerdown={(e) => onSplitterPointerDown('tree', e)}
+      role="separator"
+      aria-orientation="vertical"
+      tabindex="-1"
+    ></div>
+
+    <div class="editor-panel">
+      {#if currentFile}
+        <Editor
+          {content}
+          onContentChange={handleContentChange}
+          {theme}
+          onSave={handleSave}
+        />
+      {:else}
+        <div class="panel-placeholder">Select a file to edit</div>
+      {/if}
+    </div>
+
+    <div
+      class="splitter"
+      class:active={draggingSplitter === 'editor'}
+      onpointerdown={(e) => onSplitterPointerDown('editor', e)}
+      role="separator"
+      aria-orientation="vertical"
+      tabindex="-1"
+    ></div>
+
+    <div class="preview-panel">
+      {#if currentFile}
+        <Preview {content} {theme} />
+      {:else}
+        <div class="panel-placeholder">Preview will appear here</div>
+      {/if}
+    </div>
+  </div>
+
+  <div class="statusbar-area">
+    <StatusBar
+      currentFile={currentFile}
+      {content}
+      {theme}
+      onToggleTheme={handleToggleTheme}
+    />
+  </div>
+</div>
+
+<Toast />
+
+<style>
+  .app-layout {
+    display: grid;
+    grid-template-rows: auto auto auto 1fr auto;
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+  }
+
+  .toolbar-area {
+    grid-row: 1;
+  }
+
+  .tabs-area {
+    grid-row: 2;
+  }
+
+  .main-area {
+    grid-row: 4;
+    display: grid;
+    overflow: hidden;
+  }
+
+  .statusbar-area {
+    grid-row: 5;
+  }
+
+  .sidebar-panel {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .sidebar-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-sidebar);
+    flex-shrink: 0;
+  }
+
+  .sidebar-tab {
+    flex: 1;
+    padding: 8px 6px;
+    border: none;
+    border-bottom: 2px solid transparent;
+    background: none;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+
+  .sidebar-tab:hover {
+    color: var(--text-secondary);
+  }
+
+  .sidebar-tab.active {
+    color: var(--text-primary);
+    border-bottom-color: var(--accent);
+  }
+
+  .sidebar-content {
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .editor-panel {
+    overflow: hidden;
+    background: var(--bg-editor);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .preview-panel {
+    overflow: hidden;
+    background: var(--bg-preview);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .panel-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-muted);
+    font-size: 14px;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .splitter {
+    width: 4px;
+    cursor: col-resize;
+    background: var(--border);
+    transition: background 0.15s;
+    z-index: 10;
+  }
+
+  .splitter:hover,
+  .splitter.active {
+    background: var(--accent);
+  }
+</style>
