@@ -72,6 +72,14 @@
     return 'mermaid-preview-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
   }
 
+  function cleanupMermaidOrphans() {
+    // Mermaid render() creates temp containers in document.body that can
+    // remain after errors and block clicks on the modal.
+    document.querySelectorAll('body > [id^="dmermaid-preview-"], body > .mermaid-error').forEach(el => el.remove());
+    // Also remove any generic mermaid temp containers
+    document.querySelectorAll('body > svg[id^="mermaid-preview-"]').forEach(el => el.remove());
+  }
+
   async function renderPreview(source: string) {
     if (!source.trim()) {
       previewHtml = '';
@@ -92,6 +100,8 @@
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
       // Keep last successful preview visible when there is an error
+    } finally {
+      cleanupMermaidOrphans();
     }
   }
 
@@ -116,12 +126,13 @@
     renderPreview(code);
   });
 
-  // Cleanup debounce timer on destroy
+  // Cleanup debounce timer and orphaned mermaid elements on destroy
   $effect(() => {
     return () => {
       if (debounceTimer !== undefined) {
         clearTimeout(debounceTimer);
       }
+      cleanupMermaidOrphans();
     };
   });
 
@@ -171,7 +182,7 @@
         <button class="btn btn-primary" onclick={handleSave}>
           Save
         </button>
-        <button class="btn" onclick={onClose}>
+        <button class="btn" onclick={() => onClose()}>
           Close
         </button>
       </div>
@@ -262,6 +273,8 @@
     border-bottom: 1px solid var(--border);
     user-select: none;
     -webkit-user-select: none;
+    position: relative;
+    z-index: 10;
   }
 
   .topbar-title {
