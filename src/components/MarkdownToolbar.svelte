@@ -8,6 +8,21 @@
 
 <div class="md-toolbar">
   <div class="btn-group">
+    <button class="md-btn" onclick={() => onInsert('undo')} title="Undo (Ctrl+Z)">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 6h7a4 4 0 0 1 0 8H8" />
+        <polyline points="6 3 3 6 6 9" />
+      </svg>
+    </button>
+    <button class="md-btn" onclick={() => onInsert('redo')} title="Redo (Ctrl+Shift+Z)">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M13 6H6a4 4 0 0 0 0 8h2" />
+        <polyline points="10 3 13 6 10 9" />
+      </svg>
+    </button>
+  </div>
+  <span class="separator">|</span>
+  <div class="btn-group">
     <button class="md-btn" onclick={() => onInsert('bold')} title="Bold">
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M4 2.5h5a3.25 3.25 0 0 1 0 5.5H4V2.5Z" />

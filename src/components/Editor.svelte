@@ -3,7 +3,7 @@
   import { EditorState, Compartment } from '@codemirror/state';
   import { markdown } from '@codemirror/lang-markdown';
   import { oneDark } from '@codemirror/theme-one-dark';
-  import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
+  import { defaultKeymap, history, historyKeymap, undo, redo } from '@codemirror/commands';
   import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language';
   import { search, searchKeymap, openSearchPanel } from '@codemirror/search';
   import type { Theme } from '$lib/theme';
@@ -95,6 +95,12 @@
     const selectedText = view.state.sliceDoc(from, to);
 
     switch (type) {
+      case 'undo':
+        undo(view);
+        break;
+      case 'redo':
+        redo(view);
+        break;
       case 'bold':
         wrapSelection(view, '**');
         break;

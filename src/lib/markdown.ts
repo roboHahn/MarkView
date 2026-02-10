@@ -1,4 +1,5 @@
 import MarkdownIt from 'markdown-it';
+import hljs from 'highlight.js';
 // @ts-ignore - markdown-it-katex has no TypeScript type declarations
 import markdownItKatex from 'markdown-it-katex';
 // @ts-ignore - markdown-it-task-lists has no TypeScript type declarations
@@ -9,7 +10,21 @@ import markdownItFootnote from 'markdown-it-footnote';
 const md = new MarkdownIt({
   html: true,
   linkify: true,
-  typographer: true
+  typographer: true,
+  highlight: (str, lang) => {
+    if (lang && hljs.getLanguage(lang)) {
+      try {
+        return hljs.highlight(str, { language: lang }).value;
+      } catch {
+        // fall through to auto-detect
+      }
+    }
+    try {
+      return hljs.highlightAuto(str).value;
+    } catch {
+      return '';
+    }
+  }
 });
 
 // Enable KaTeX math rendering: $...$ for inline, $$...$$ for display math

@@ -5,6 +5,7 @@
   import { customCss } from '$lib/custom-css.svelte';
   import mermaid from 'mermaid';
   import '../styles/preview.css';
+  import '../styles/hljs-theme.css';
 
   interface Props {
     content: string;
@@ -47,6 +48,29 @@
     });
   }
 
+  // Fix known mermaid syntax issues before rendering
+  function fixMermaidSyntax(source: string): string {
+    // Convert multi-line "note ... end note" blocks to single-line syntax
+    // e.g.:
+    //   note right of State
+    //       Line 1
+    //       Line 2
+    //   end note
+    // becomes:
+    //   note right of State : Line 1<br/>Line 2
+    return source.replace(
+      /note\s+(right|left)\s+of\s+(\S+)\s*\n([\s\S]*?)end\s+note/gi,
+      (_match, side, state, content) => {
+        const lines = content.trim().split('\n').map((l: string) => l.trim()).filter((l: string) => l);
+        return `note ${side} of ${state} : ${lines.join('<br/>')}`;
+      }
+    );
+  }
+
+  function escapeHtml(text: string): string {
+    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
   // Debounced rendering of markdown content
   $effect(() => {
     // Access content and theme to track them as dependencies
@@ -66,15 +90,20 @@
       if (previewContainer) {
         const mermaidNodes = previewContainer.querySelectorAll('.mermaid');
         if (mermaidNodes.length > 0) {
-          // Clear previous mermaid renders to avoid stale SVGs
-          mermaidNodes.forEach((node) => {
-            node.removeAttribute('data-processed');
-          });
-          try {
-            await mermaid.run({ nodes: mermaidNodes as NodeListOf<HTMLElement> });
-          } catch {
-            // Mermaid rendering errors are non-fatal; the raw text
-            // remains visible in the div.
+          // Process each node individually so one failure doesn't break others
+          for (const node of mermaidNodes) {
+            const el = node as HTMLElement;
+            const original = el.textContent || '';
+            // Pre-process to fix known syntax issues
+            el.textContent = fixMermaidSyntax(original);
+            el.removeAttribute('data-processed');
+            try {
+              await mermaid.run({ nodes: [el] as unknown as NodeListOf<HTMLElement> });
+            } catch (err) {
+              // Show raw source with error indicator
+              const msg = err instanceof Error ? err.message : 'Syntax error';
+              el.innerHTML = `<div class="mermaid-error"><div class="mermaid-error-label">Mermaid error: ${escapeHtml(msg)}</div><pre>${escapeHtml(original)}</pre></div>`;
+            }
           }
         }
       }
