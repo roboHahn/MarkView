@@ -1,0 +1,37 @@
+/*
+ * Focus Mode styles for the MarkView editor.
+ *
+ * When focus mode is active, all lines outside the current paragraph
+ * receive the .cm-unfocused class via the focusModeExtension plugin.
+ * This stylesheet dims those lines so the writer can concentrate on
+ * the paragraph they are currently editing.
+ */
+
+/* --- Unfocused (dimmed) lines ----------------------------------------- */
+
+.cm-editor .cm-unfocused {
+  opacity: 0.3;
+  transition: opacity 0.2s ease;
+}
+
+/* Active lines remain fully opaque. We explicitly set opacity: 1 on
+   .cm-line so that lines without .cm-unfocused smoothly transition
+   back to full visibility when the cursor moves into their paragraph. */
+
+.cm-editor .cm-line {
+  transition: opacity 0.2s ease;
+}
+
+/* --- Optional: whole-editor focus-mode wrapper class ------------------- */
+
+/* When .focus-mode is toggled on the editor wrapper, apply a subtle
+   vignette-like effect to further emphasise the writing area. */
+
+.focus-mode .cm-editor {
+  background: inherit;
+}
+
+.focus-mode .cm-editor .cm-scroller {
+  padding-top: 2rem;
+  padding-bottom: 2rem;
+}

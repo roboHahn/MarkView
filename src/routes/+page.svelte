@@ -2,10 +2,12 @@
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { open } from '@tauri-apps/plugin-dialog';
-  import { getInitialTheme, setTheme, toggleTheme, type Theme } from '$lib/theme';
+  import { type Theme } from '$lib/theme';
+  import { themes, getTheme, applyTheme, getStoredThemeId, storeThemeId } from '$lib/themes';
   import { toastManager } from '$lib/toast.svelte';
   import { startWatching, stopWatching, type FileChangeEvent } from '$lib/watcher';
   import type { FileEntry } from '$lib/types';
+  import { customCss } from '$lib/custom-css.svelte';
   import Toolbar from '../components/Toolbar.svelte';
   import FileTree from '../components/FileTree.svelte';
   import SearchPanel from '../components/SearchPanel.svelte';
@@ -22,6 +24,12 @@
   import DiffView from '../components/DiffView.svelte';
   import EmojiPicker from '../components/EmojiPicker.svelte';
   import SnippetMenu from '../components/SnippetMenu.svelte';
+  import CommandPalette from '../components/CommandPalette.svelte';
+  import TableEditor from '../components/TableEditor.svelte';
+  import PresentationMode from '../components/PresentationMode.svelte';
+  import CustomCssEditor from '../components/CustomCssEditor.svelte';
+  import ThemePicker from '../components/ThemePicker.svelte';
+  import PluginManager from '../components/PluginManager.svelte';
   import StatusBar from '../components/StatusBar.svelte';
   import Toast from '../components/Toast.svelte';
   import { settingsManager } from '$lib/settings.svelte';
@@ -34,6 +42,7 @@
   let fileTree: FileEntry[] = $state([]);
   let content: string = $state('');
   let theme: Theme = $state('dark');
+  let currentThemeId = $state('dark');
 
   // --- Sidebar mode ---
   type SidebarMode = 'files' | 'search' | 'git' | 'toc';
@@ -62,6 +71,16 @@
   let diffViewOpen = $state(false);
   let emojiPickerOpen = $state(false);
   let snippetMenuOpen = $state(false);
+  let commandPaletteOpen = $state(false);
+  let tableEditorOpen = $state(false);
+  let presentationOpen = $state(false);
+  let customCssOpen = $state(false);
+  let themePickerOpen = $state(false);
+  let pluginManagerOpen = $state(false);
+
+  // --- Editor modes ---
+  let focusModeEnabled = $state(false);
+  let spellCheckEnabled = $state(false);
 
   // --- Tabs (open files) ---
   interface OpenFile {
@@ -103,8 +122,10 @@
 
   // --- Lifecycle ---
   onMount(() => {
-    theme = getInitialTheme();
-    setTheme(theme);
+    currentThemeId = getStoredThemeId() || 'dark';
+    const themeDef = getTheme(currentThemeId);
+    theme = themeDef.type;
+    applyTheme(themeDef);
 
     return () => {
       stopWatching().catch(() => {});
@@ -212,7 +233,54 @@
   }
 
   function handleToggleTheme() {
-    theme = toggleTheme(theme);
+    // Cycle to next theme type (dark ↔ light)
+    const current = getTheme(currentThemeId);
+    const nextType = current.type === 'dark' ? 'light' : 'dark';
+    const nextTheme = themes.find(t => t.type === nextType) ?? themes[0];
+    handleThemeSelect(nextTheme.id);
+  }
+
+  function handleThemeSelect(themeId: string) {
+    currentThemeId = themeId;
+    const themeDef = getTheme(themeId);
+    theme = themeDef.type;
+    applyTheme(themeDef);
+    storeThemeId(themeId);
+  }
+
+  // --- Table editor ---
+  function handleTableInsert(markdown: string) {
+    insertCommand = { type: '__raw:\n' + markdown + '\n', timestamp: Date.now() };
+    tableEditorOpen = false;
+  }
+
+  // --- Command palette ---
+  function handleCommandExecute(commandId: string) {
+    switch (commandId) {
+      case 'file.openFolder': handleOpenFolder(); break;
+      case 'file.save': handleSave(); break;
+      case 'file.closeTab': if (currentFile) handleCloseTab(currentFile); break;
+      case 'edit.bold': handleToolbarInsert('bold'); break;
+      case 'edit.italic': handleToolbarInsert('italic'); break;
+      case 'edit.link': handleToolbarInsert('link'); break;
+      case 'edit.image': handleToolbarInsert('image'); break;
+      case 'edit.codeblock': handleToolbarInsert('codeblock'); break;
+      case 'edit.table': tableEditorOpen = true; break;
+      case 'edit.hr': handleToolbarInsert('hr'); break;
+      case 'view.sidebar': sidebarVisible = !sidebarVisible; break;
+      case 'view.zen': zenMode = !zenMode; break;
+      case 'view.theme': themePickerOpen = true; break;
+      case 'view.focusMode': focusModeEnabled = !focusModeEnabled; break;
+      case 'search.files': sidebarMode = 'search'; break;
+      case 'tools.diff': if (currentFile && currentFolder) diffViewOpen = true; break;
+      case 'tools.settings': settingsOpen = true; break;
+      case 'tools.emoji': emojiPickerOpen = true; break;
+      case 'tools.snippets': snippetMenuOpen = true; break;
+      case 'tools.presentation': if (content) presentationOpen = true; break;
+      case 'tools.customCss': customCssOpen = true; break;
+      case 'tools.themes': themePickerOpen = true; break;
+      case 'tools.plugins': pluginManagerOpen = true; break;
+    }
   }
 
   // --- File watcher ---
@@ -509,6 +577,16 @@
       e.preventDefault();
       if (currentFile && currentFolder) diffViewOpen = true;
     }
+    // Ctrl+Shift+P — command palette
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'P') {
+      e.preventDefault();
+      commandPaletteOpen = !commandPaletteOpen;
+    }
+    // Ctrl+Shift+M — presentation mode
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'M') {
+      e.preventDefault();
+      if (content) presentationOpen = true;
+    }
   }
 </script>
 
@@ -567,6 +645,30 @@
       </div>
       <button class="extra-btn" onclick={() => { if (currentFile && currentFolder) diffViewOpen = true; }} disabled={!currentFile} title="Git Diff (Ctrl+D)">
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="1" x2="8" y2="15" /><line x1="3" y1="5" x2="6" y2="5" /><line x1="3" y1="8" x2="6" y2="8" /><line x1="10" y1="8" x2="13" y2="8" /><line x1="11.5" y1="6" x2="11.5" y2="10" /><line x1="3" y1="11" x2="6" y2="11" /></svg>
+      </button>
+      <button class="extra-btn" class:active-toggle={focusModeEnabled} onclick={() => focusModeEnabled = !focusModeEnabled} title="Focus Mode">
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="7" /><circle cx="8" cy="8" r="3" /></svg>
+      </button>
+      <button class="extra-btn" class:active-toggle={spellCheckEnabled} onclick={() => spellCheckEnabled = !spellCheckEnabled} title="Spell Check">
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13l4-10h1l4 10" /><line x1="3.5" y1="9" x2="9.5" y2="9" /><polyline points="11 10 12.5 12 15 8" /></svg>
+      </button>
+      <button class="extra-btn" onclick={() => tableEditorOpen = true} disabled={!currentFile} title="Insert Table">
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="2" width="14" height="12" rx="1" /><line x1="1" y1="6" x2="15" y2="6" /><line x1="1" y1="10" x2="15" y2="10" /><line x1="6" y1="2" x2="6" y2="14" /><line x1="11" y1="2" x2="11" y2="14" /></svg>
+      </button>
+      <button class="extra-btn" onclick={() => { if (content) presentationOpen = true; }} disabled={!currentFile} title="Presentation Mode (Ctrl+Shift+M)">
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="2" width="14" height="10" rx="1" /><line x1="8" y1="12" x2="8" y2="15" /><line x1="5" y1="15" x2="11" y2="15" /><polygon points="6,5 6,9 10,7" /></svg>
+      </button>
+      <button class="extra-btn" onclick={() => themePickerOpen = true} title="Themes">
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6" /><path d="M8 2a6 6 0 000 12z" fill="currentColor" opacity="0.3" /></svg>
+      </button>
+      <button class="extra-btn" onclick={() => customCssOpen = true} title="Custom Preview CSS">
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2l-3 6 3 6" /><path d="M12 2l3 6-3 6" /><line x1="10" y1="1" x2="6" y2="15" /></svg>
+      </button>
+      <button class="extra-btn" onclick={() => pluginManagerOpen = true} title="Plugins">
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="1" width="10" height="6" rx="1" /><line x1="6" y1="7" x2="6" y2="10" /><line x1="10" y1="7" x2="10" y2="10" /><rect x="1" y="10" width="14" height="5" rx="1" /></svg>
+      </button>
+      <button class="extra-btn" onclick={() => commandPaletteOpen = true} title="Command Palette (Ctrl+Shift+P)">
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4l-3 4 3 4" /><path d="M12 4l3 4-3 4" /></svg>
       </button>
       <button class="extra-btn" onclick={() => settingsOpen = true} title="Settings">
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.5" /><path d="M8 1.5l.7 2.1a4.5 4.5 0 011.7 1l2.1-.7 1 1.7-1.4 1.5a4.5 4.5 0 010 1.8l1.4 1.5-1 1.7-2.1-.7a4.5 4.5 0 01-1.7 1L8 14.5l-1.7 0-.7-2.1a4.5 4.5 0 01-1.7-1l-2.1.7-1-1.7 1.4-1.5a4.5 4.5 0 010-1.8L.8 5.6l1-1.7 2.1.7a4.5 4.5 0 011.7-1L6.3 1.5z" /></svg>
@@ -667,6 +769,8 @@
           scrollFraction={scrollSource === 'preview' ? scrollFraction : undefined}
           {insertCommand}
           onImagePaste={handleImagePaste}
+          focusMode={focusModeEnabled}
+          spellCheck={spellCheckEnabled}
         />
       {:else}
         <div class="panel-placeholder">Select a file to edit</div>
@@ -721,6 +825,50 @@
     initialCode="graph TD\n    A[Start] --> B[End]"
     onSave={handleMermaidSave}
     onClose={() => mermaidEditorOpen = false}
+    {theme}
+  />
+{/if}
+
+{#if commandPaletteOpen}
+  <CommandPalette
+    onExecute={handleCommandExecute}
+    onClose={() => commandPaletteOpen = false}
+  />
+{/if}
+
+{#if tableEditorOpen}
+  <TableEditor
+    onInsert={handleTableInsert}
+    onClose={() => tableEditorOpen = false}
+  />
+{/if}
+
+{#if presentationOpen}
+  <PresentationMode
+    {content}
+    {theme}
+    onClose={() => presentationOpen = false}
+  />
+{/if}
+
+{#if customCssOpen}
+  <CustomCssEditor
+    onClose={() => customCssOpen = false}
+    {theme}
+  />
+{/if}
+
+{#if themePickerOpen}
+  <ThemePicker
+    currentThemeId={currentThemeId}
+    onSelect={(id) => { handleThemeSelect(id); themePickerOpen = false; }}
+    onClose={() => themePickerOpen = false}
+  />
+{/if}
+
+{#if pluginManagerOpen}
+  <PluginManager
+    onClose={() => pluginManagerOpen = false}
     {theme}
   />
 {/if}
@@ -878,5 +1026,11 @@
   .extra-btn:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+  }
+
+  .extra-btn.active-toggle {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
   }
 </style>

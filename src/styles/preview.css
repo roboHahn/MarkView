@@ -182,3 +182,86 @@
 .preview-content em {
   font-style: italic;
 }
+
+/* Task list / checkbox styles */
+.preview-content .task-list-item {
+  list-style-type: none;
+  position: relative;
+  margin-left: -1.4em;
+  padding-left: 0;
+}
+
+.preview-content .task-list-item input[type="checkbox"] {
+  margin: 0 0.4em 0 0;
+  position: relative;
+  top: 1px;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: default;
+}
+
+.preview-content .task-list-item label {
+  cursor: default;
+}
+
+.preview-content .task-list-item.checked > label {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.preview-content ul.contains-task-list {
+  padding-left: 2em;
+}
+
+/* Footnotes styles */
+.preview-content .footnotes {
+  margin-top: 2em;
+  padding-top: 1em;
+  border-top: 1px solid var(--border);
+  font-size: 0.85em;
+  color: var(--text-secondary);
+}
+
+.preview-content .footnotes-sep {
+  display: none;
+}
+
+.preview-content .footnotes ol {
+  padding-left: 1.5em;
+}
+
+.preview-content .footnotes li {
+  margin-bottom: 0.5em;
+  line-height: 1.5;
+}
+
+.preview-content .footnotes li p {
+  margin-bottom: 0.25em;
+  display: inline;
+}
+
+.preview-content .footnote-ref a {
+  font-size: 0.8em;
+  vertical-align: super;
+  line-height: 0;
+  text-decoration: none;
+  color: var(--accent);
+}
+
+.preview-content .footnote-ref a:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
+.preview-content .footnote-backref {
+  font-size: 0.85em;
+  text-decoration: none;
+  color: var(--accent);
+  margin-left: 0.25em;
+}
+
+.preview-content .footnote-backref:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}

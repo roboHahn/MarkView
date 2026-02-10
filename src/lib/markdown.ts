@@ -1,6 +1,10 @@
 import MarkdownIt from 'markdown-it';
 // @ts-ignore - markdown-it-katex has no TypeScript type declarations
 import markdownItKatex from 'markdown-it-katex';
+// @ts-ignore - markdown-it-task-lists has no TypeScript type declarations
+import markdownItTaskLists from 'markdown-it-task-lists';
+// @ts-ignore - markdown-it-footnote has no TypeScript type declarations
+import markdownItFootnote from 'markdown-it-footnote';
 
 const md = new MarkdownIt({
   html: true,
@@ -10,6 +14,12 @@ const md = new MarkdownIt({
 
 // Enable KaTeX math rendering: $...$ for inline, $$...$$ for display math
 md.use(markdownItKatex);
+
+// Enable task list / checkbox rendering: - [ ] unchecked, - [x] checked
+md.use(markdownItTaskLists, { enabled: true, label: true });
+
+// Enable footnotes: [^1] inline reference, [^1]: Footnote text at bottom
+md.use(markdownItFootnote);
 
 // Store original fence renderer
 const defaultFence = md.renderer.rules.fence || function (tokens, idx, options, _env, self) {

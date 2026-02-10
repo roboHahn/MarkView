@@ -2,6 +2,7 @@
   import { tick } from 'svelte';
   import { renderMarkdown } from '$lib/markdown';
   import type { Theme } from '$lib/theme';
+  import { customCss } from '$lib/custom-css.svelte';
   import mermaid from 'mermaid';
   import '../styles/preview.css';
 
@@ -86,6 +87,9 @@
 </script>
 
 <div class="preview-panel" bind:this={previewContainer} onscroll={handleScroll}>
+  {#if customCss.value}
+    {@html `<style>${customCss.value}</style>`}
+  {/if}
   <div class="preview-content">
     {@html renderedHtml}
   </div>

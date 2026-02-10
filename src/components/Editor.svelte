@@ -7,7 +7,10 @@
   import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language';
   import { search, searchKeymap, openSearchPanel } from '@codemirror/search';
   import type { Theme } from '$lib/theme';
+  import { focusModeExtension } from '$lib/focus-mode';
+  import { spellCheckExtension } from '$lib/spellcheck';
   import '../styles/codemirror.css';
+  import '../styles/focus-mode.css';
 
   interface Props {
     content: string;
@@ -18,6 +21,8 @@
     scrollFraction?: number;
     insertCommand?: { type: string; timestamp: number } | null;
     onImagePaste?: (file: File) => void;
+    focusMode?: boolean;
+    spellCheck?: boolean;
   }
 
   let {
@@ -28,12 +33,16 @@
     onScrollChange,
     scrollFraction,
     insertCommand,
-    onImagePaste
+    onImagePaste,
+    focusMode = false,
+    spellCheck = false
   }: Props = $props();
 
   let editorContainer: HTMLDivElement | undefined = $state(undefined);
   let editorView: EditorView | undefined = $state(undefined);
   let themeCompartment = new Compartment();
+  let focusCompartment = new Compartment();
+  let spellCheckCompartment = new Compartment();
 
   // Track whether we are currently dispatching an internal update,
   // so we can ignore the external content prop echo.
@@ -181,6 +190,8 @@
         search(),
         EditorView.lineWrapping,
         themeCompartment.of(getThemeExtension(theme)),
+        focusCompartment.of(focusModeExtension(focusMode)),
+        spellCheckCompartment.of(spellCheckExtension(spellCheck)),
         keymap.of([
           ...defaultKeymap,
           ...historyKeymap,
@@ -309,6 +320,24 @@
     if (maxScroll > 0) {
       scrollDOM.scrollTop = fraction * maxScroll;
     }
+  });
+
+  // Reconfigure focus mode dynamically
+  $effect(() => {
+    const enabled = focusMode;
+    if (!editorView) return;
+    editorView.dispatch({
+      effects: focusCompartment.reconfigure(focusModeExtension(enabled))
+    });
+  });
+
+  // Reconfigure spellcheck dynamically
+  $effect(() => {
+    const enabled = spellCheck;
+    if (!editorView) return;
+    editorView.dispatch({
+      effects: spellCheckCompartment.reconfigure(spellCheckExtension(enabled))
+    });
   });
 
   // React to insert commands from toolbar
