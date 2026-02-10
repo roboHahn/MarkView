@@ -16,8 +16,17 @@
   import Editor from '../components/Editor.svelte';
   import Preview from '../components/Preview.svelte';
   import MermaidEditor from '../components/MermaidEditor.svelte';
+  import Breadcrumb from '../components/Breadcrumb.svelte';
+  import SettingsPanel from '../components/SettingsPanel.svelte';
+  import RecentFiles from '../components/RecentFiles.svelte';
+  import DiffView from '../components/DiffView.svelte';
+  import EmojiPicker from '../components/EmojiPicker.svelte';
+  import SnippetMenu from '../components/SnippetMenu.svelte';
   import StatusBar from '../components/StatusBar.svelte';
   import Toast from '../components/Toast.svelte';
+  import { settingsManager } from '$lib/settings.svelte';
+  import { recentFiles } from '$lib/recent-files.svelte';
+  import '../styles/katex-import.css';
 
   // --- App State ---
   let currentFolder: string | null = $state(null);
@@ -40,6 +49,19 @@
   // --- Mermaid editor ---
   let mermaidEditorOpen = $state(false);
   let mermaidEditorCode = $state('');
+
+  // --- Zen mode ---
+  let zenMode = $state(false);
+
+  // --- Sidebar visibility ---
+  let sidebarVisible = $state(true);
+
+  // --- Modals/dropdowns ---
+  let settingsOpen = $state(false);
+  let recentFilesOpen = $state(false);
+  let diffViewOpen = $state(false);
+  let emojiPickerOpen = $state(false);
+  let snippetMenuOpen = $state(false);
 
   // --- Tabs (open files) ---
   interface OpenFile {
@@ -74,7 +96,9 @@
   let editorFr = $derived(Math.round(editorFraction * 1000));
   let previewFr = $derived(Math.round((1 - editorFraction) * 1000));
   let gridColumns = $derived(
-    `${fileTreeWidth}px ${SPLITTER_WIDTH}px ${editorFr}fr ${SPLITTER_WIDTH}px ${previewFr}fr`
+    sidebarVisible && !zenMode
+      ? `${fileTreeWidth}px ${SPLITTER_WIDTH}px ${editorFr}fr ${SPLITTER_WIDTH}px ${previewFr}fr`
+      : `0px 0px ${editorFr}fr ${SPLITTER_WIDTH}px ${previewFr}fr`
   );
 
   // --- Lifecycle ---
@@ -109,6 +133,7 @@
 
       // Start file watcher
       startWatching(selected, handleFileChanges).catch(() => {});
+      recentFiles.add(selected, 'folder');
     }
   }
 
@@ -134,6 +159,7 @@
 
       currentFile = path;
       content = fileContent;
+      recentFiles.add(path, 'file');
     } catch (err) {
       toastManager.error('Failed to read file');
     }
@@ -413,14 +439,56 @@
     insertCommand = { type: '__goto:' + line, timestamp: Date.now() };
   }
 
+  // --- Emoji / Snippet insert ---
+  function handleEmojiSelect(emoji: string) {
+    insertCommand = { type: '__raw:' + emoji, timestamp: Date.now() };
+    emojiPickerOpen = false;
+  }
+
+  function handleSnippetInsert(snippet: string) {
+    insertCommand = { type: '__raw:' + snippet, timestamp: Date.now() };
+    snippetMenuOpen = false;
+  }
+
+  // --- Recent files handlers ---
+  async function handleRecentFileSelect(path: string) {
+    recentFilesOpen = false;
+    await handleFileSelect(path);
+  }
+
+  async function handleRecentFolderSelect(path: string) {
+    recentFilesOpen = false;
+    await stopWatching().catch(() => {});
+    currentFolder = path;
+    currentFile = null;
+    content = '';
+    openFiles = [];
+    sidebarMode = 'files';
+    try {
+      fileTree = await invoke<FileEntry[]>('read_directory', { path });
+      startWatching(path, handleFileChanges).catch(() => {});
+    } catch {
+      toastManager.error('Failed to read directory');
+      fileTree = [];
+    }
+  }
+
   // --- Keyboard shortcuts ---
   function handleKeydown(e: KeyboardEvent) {
+    // F11 — zen mode
+    if (e.key === 'F11') {
+      e.preventDefault();
+      zenMode = !zenMode;
+    }
+    // Escape — exit zen mode
+    if (e.key === 'Escape' && zenMode) {
+      zenMode = false;
+    }
     // Ctrl+O — open folder
     if ((e.ctrlKey || e.metaKey) && e.key === 'o') {
       e.preventDefault();
       handleOpenFolder();
     }
-    // Ctrl+Shift+P — toggle preview (future)
     // Ctrl+, — toggle theme
     if ((e.ctrlKey || e.metaKey) && e.key === ',') {
       e.preventDefault();
@@ -430,6 +498,16 @@
     if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'F') {
       e.preventDefault();
       sidebarMode = 'search';
+    }
+    // Ctrl+B — sidebar toggle
+    if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
+      e.preventDefault();
+      sidebarVisible = !sidebarVisible;
+    }
+    // Ctrl+D — diff view
+    if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
+      e.preventDefault();
+      if (currentFile && currentFolder) diffViewOpen = true;
     }
   }
 </script>
@@ -445,6 +523,7 @@
   ondrop={handleDrop}
   role="application"
 >
+  {#if !zenMode}
   <div class="toolbar-area">
     <Toolbar
       onOpenFolder={handleOpenFolder}
@@ -454,7 +533,50 @@
       {content}
       {theme}
     />
+    <div class="toolbar-extra">
+      <button class="extra-btn" onclick={() => sidebarVisible = !sidebarVisible} title="Toggle Sidebar (Ctrl+B)">
+        {sidebarVisible ? '◀' : '▶'}
+      </button>
+      <div class="extra-btn-group">
+        <button class="extra-btn" onclick={() => recentFilesOpen = !recentFilesOpen} title="Recent Files">
+          Recent
+        </button>
+        {#if recentFilesOpen}
+          <RecentFiles
+            onFileSelect={handleRecentFileSelect}
+            onFolderSelect={handleRecentFolderSelect}
+            onClose={() => recentFilesOpen = false}
+          />
+        {/if}
+      </div>
+      <div class="extra-btn-group">
+        <button class="extra-btn" onclick={() => emojiPickerOpen = !emojiPickerOpen} title="Emoji Picker">
+          😀
+        </button>
+        {#if emojiPickerOpen}
+          <EmojiPicker onSelect={handleEmojiSelect} onClose={() => emojiPickerOpen = false} />
+        {/if}
+      </div>
+      <div class="extra-btn-group">
+        <button class="extra-btn" onclick={() => snippetMenuOpen = !snippetMenuOpen} title="Snippets">
+          Snippets
+        </button>
+        {#if snippetMenuOpen}
+          <SnippetMenu onInsert={handleSnippetInsert} onClose={() => snippetMenuOpen = false} />
+        {/if}
+      </div>
+      <button class="extra-btn" onclick={() => { if (currentFile && currentFolder) diffViewOpen = true; }} disabled={!currentFile} title="Git Diff (Ctrl+D)">
+        Diff
+      </button>
+      <button class="extra-btn" onclick={() => settingsOpen = true} title="Settings">
+        ⚙
+      </button>
+      <button class="extra-btn" onclick={() => zenMode = true} title="Zen Mode (F11)">
+        ⛶
+      </button>
+    </div>
   </div>
+  {/if}
 
   {#if openFiles.length > 0}
     <div class="tabs-area">
@@ -468,7 +590,7 @@
   {/if}
 
   <div class="main-area" style="grid-template-columns: {gridColumns}">
-    <div class="sidebar-panel">
+    <div class="sidebar-panel" class:hidden={!sidebarVisible || zenMode}>
       <div class="sidebar-tabs">
         <button
           class="sidebar-tab"
@@ -528,6 +650,9 @@
 
     <div class="editor-panel">
       {#if currentFile}
+        {#if !zenMode}
+          <Breadcrumb {currentFile} {currentFolder} />
+        {/if}
         <MarkdownToolbar onInsert={handleToolbarInsert} />
         <Editor
           {content}
@@ -567,6 +692,7 @@
     </div>
   </div>
 
+  {#if !zenMode}
   <div class="statusbar-area">
     <StatusBar
       currentFile={currentFile}
@@ -575,7 +701,16 @@
       onToggleTheme={handleToggleTheme}
     />
   </div>
+  {/if}
 </div>
+
+{#if settingsOpen}
+  <SettingsPanel onClose={() => settingsOpen = false} {theme} />
+{/if}
+
+{#if diffViewOpen}
+  <DiffView {currentFile} {currentFolder} onClose={() => diffViewOpen = false} {theme} />
+{/if}
 
 {#if mermaidEditorOpen}
   <MermaidEditor
@@ -693,5 +828,45 @@
   .splitter:hover,
   .splitter.active {
     background: var(--accent);
+  }
+
+  .sidebar-panel.hidden {
+    display: none;
+  }
+
+  .toolbar-extra {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 12px 0 12px;
+    height: 32px;
+    background: var(--bg-toolbar);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .extra-btn-group {
+    position: relative;
+  }
+
+  .extra-btn {
+    padding: 2px 8px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+
+  .extra-btn:hover:not(:disabled) {
+    background: var(--hover-bg);
+    border-color: var(--accent);
+    color: var(--text-primary);
+  }
+
+  .extra-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
 </style>

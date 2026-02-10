@@ -1,10 +1,15 @@
 import MarkdownIt from 'markdown-it';
+// @ts-ignore - markdown-it-katex has no TypeScript type declarations
+import markdownItKatex from 'markdown-it-katex';
 
 const md = new MarkdownIt({
   html: true,
   linkify: true,
   typographer: true
 });
+
+// Enable KaTeX math rendering: $...$ for inline, $$...$$ for display math
+md.use(markdownItKatex);
 
 // Store original fence renderer
 const defaultFence = md.renderer.rules.fence || function (tokens, idx, options, _env, self) {
