@@ -31,6 +31,12 @@
   import ThemePicker from '../components/ThemePicker.svelte';
   import PluginManager from '../components/PluginManager.svelte';
   import AIPanel from '../components/AIPanel.svelte';
+  import BacklinksPanel from '../components/BacklinksPanel.svelte';
+  import GraphView from '../components/GraphView.svelte';
+  import MindMapView from '../components/MindMapView.svelte';
+  import TemplateModal from '../components/TemplateModal.svelte';
+  import ImageGallery from '../components/ImageGallery.svelte';
+  import { templateManager } from '$lib/templates';
   import StatusBar from '../components/StatusBar.svelte';
   import Toast from '../components/Toast.svelte';
   import { settingsManager } from '$lib/settings.svelte';
@@ -46,7 +52,7 @@
   let currentThemeId = $state('dark');
 
   // --- Sidebar mode ---
-  type SidebarMode = 'files' | 'search' | 'git' | 'toc' | 'ai';
+  type SidebarMode = 'files' | 'search' | 'git' | 'toc' | 'ai' | 'backlinks';
   let sidebarMode: SidebarMode = $state('files');
 
   // --- AI helper ---
@@ -81,6 +87,10 @@
   let customCssOpen = $state(false);
   let themePickerOpen = $state(false);
   let pluginManagerOpen = $state(false);
+  let graphViewOpen = $state(false);
+  let mindMapOpen = $state(false);
+  let templateModalOpen = $state(false);
+  let imageGalleryOpen = $state(false);
 
   // --- Editor modes ---
   let focusModeEnabled = $state(false);
@@ -295,6 +305,14 @@
       case 'tools.plugins': pluginManagerOpen = true; break;
       case 'tools.mermaid': openMermaidEditor(); break;
       case 'tools.ai': sidebarMode = sidebarMode === 'ai' ? 'files' : 'ai'; break;
+      case 'navigate.backlinks': sidebarMode = 'backlinks'; break;
+      case 'navigate.graphView': if (currentFolder) graphViewOpen = true; break;
+      case 'view.minimap': settingsManager.update({ minimapEnabled: !settingsManager.settings.minimapEnabled }); break;
+      case 'view.inlineImages': settingsManager.update({ inlineImages: !settingsManager.settings.inlineImages }); break;
+      case 'view.mindMap': if (content) mindMapOpen = true; break;
+      case 'file.newFromTemplate': templateModalOpen = true; break;
+      case 'file.saveAsTemplate': if (content) { templateManager.saveCustom('Untitled', content); toastManager.success('Saved as template'); } break;
+      case 'tools.imageGallery': if (currentFolder) imageGalleryOpen = true; break;
     }
   }
 
@@ -607,6 +625,31 @@
       e.preventDefault();
       sidebarMode = sidebarMode === 'ai' ? 'files' : 'ai';
     }
+    // Ctrl+Shift+B — Backlinks
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'B') {
+      e.preventDefault();
+      sidebarMode = sidebarMode === 'backlinks' ? 'files' : 'backlinks';
+    }
+    // Ctrl+Shift+G — Graph View
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'G') {
+      e.preventDefault();
+      if (currentFolder) graphViewOpen = true;
+    }
+    // Ctrl+Shift+N — New from Template
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'N') {
+      e.preventDefault();
+      templateModalOpen = true;
+    }
+    // Ctrl+Shift+O — Mind Map
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'O') {
+      e.preventDefault();
+      if (content) mindMapOpen = true;
+    }
+    // Ctrl+Shift+I — Image Gallery
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'I') {
+      e.preventDefault();
+      if (currentFolder) imageGalleryOpen = true;
+    }
   }
 </script>
 
@@ -690,6 +733,21 @@
       <button class="extra-btn" onclick={() => pluginManagerOpen = true} title="Plugins">
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="1" width="10" height="6" rx="1" /><line x1="6" y1="7" x2="6" y2="10" /><line x1="10" y1="7" x2="10" y2="10" /><rect x="1" y="10" width="14" height="5" rx="1" /></svg>
       </button>
+      <button class="extra-btn" onclick={() => templateModalOpen = true} title="New from Template (Ctrl+Shift+N)">
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="1" width="12" height="14" rx="1" /><line x1="5" y1="5" x2="11" y2="5" /><line x1="5" y1="8" x2="9" y2="8" /><line x1="5" y1="11" x2="10" y2="11" /></svg>
+      </button>
+      <button class="extra-btn" onclick={() => { if (currentFolder) imageGalleryOpen = true; }} disabled={!currentFolder} title="Image Gallery (Ctrl+Shift+I)">
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="2" width="14" height="12" rx="1" /><circle cx="5" cy="6" r="1.5" /><polyline points="14,14 10,8 7,12 5,10 2,14" /></svg>
+      </button>
+      <button class="extra-btn" onclick={() => { if (content) mindMapOpen = true; }} disabled={!currentFile} title="Mind Map (Ctrl+Shift+O)">
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="4" cy="8" r="2" /><circle cx="12" cy="4" r="1.5" /><circle cx="12" cy="8" r="1.5" /><circle cx="12" cy="12" r="1.5" /><line x1="6" y1="7" x2="10.5" y2="4" /><line x1="6" y1="8" x2="10.5" y2="8" /><line x1="6" y1="9" x2="10.5" y2="12" /></svg>
+      </button>
+      <button class="extra-btn" onclick={() => { if (currentFolder) graphViewOpen = true; }} disabled={!currentFolder} title="Graph View (Ctrl+Shift+G)">
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="4" cy="4" r="2" /><circle cx="12" cy="4" r="2" /><circle cx="8" cy="12" r="2" /><line x1="6" y1="4" x2="10" y2="4" /><line x1="5" y1="5.5" x2="7" y2="10.5" /><line x1="11" y1="5.5" x2="9" y2="10.5" /></svg>
+      </button>
+      <button class="extra-btn" class:active-toggle={settingsManager.settings.minimapEnabled} onclick={() => settingsManager.update({ minimapEnabled: !settingsManager.settings.minimapEnabled })} title="Toggle Minimap">
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="1" width="14" height="14" rx="1" /><rect x="10" y="2" width="4" height="12" rx="0.5" opacity="0.4" fill="currentColor" /><line x1="3" y1="4" x2="8" y2="4" /><line x1="3" y1="7" x2="7" y2="7" /><line x1="3" y1="10" x2="8" y2="10" /></svg>
+      </button>
       <button class="extra-btn" onclick={() => commandPaletteOpen = true} title="Command Palette (Ctrl+Shift+P)">
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4l-3 4 3 4" /><path d="M12 4l3 4-3 4" /></svg>
       </button>
@@ -747,6 +805,12 @@
           onclick={() => sidebarMode = 'ai'}
           title="AI Helper (Ctrl+Shift+A)"
         ><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1v2M4.5 2.5l1 1.7M11.5 2.5l-1 1.7" /><circle cx="8" cy="9" r="5" /><circle cx="6.5" cy="8" r="1" fill="currentColor" /><circle cx="9.5" cy="8" r="1" fill="currentColor" /><path d="M6 11c.5.6 1.2 1 2 1s1.5-.4 2-1" /></svg></button>
+        <button
+          class="sidebar-tab"
+          class:active={sidebarMode === 'backlinks'}
+          onclick={() => sidebarMode = 'backlinks'}
+          title="Backlinks (Ctrl+Shift+B)"
+        ><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2H6l-1 4h6l-1 4H6" /><line x1="5" y1="10" x2="4" y2="14" /><line x1="10" y1="10" x2="11" y2="14" /></svg></button>
       </div>
       <div class="sidebar-content">
         {#if sidebarMode === 'files'}
@@ -777,6 +841,12 @@
             onInsertText={handleAiInsertText}
             onReplaceSelection={handleAiReplaceSelection}
             onClose={() => sidebarMode = 'files'}
+          />
+        {:else if sidebarMode === 'backlinks'}
+          <BacklinksPanel
+            {currentFile}
+            {currentFolder}
+            onFileSelect={handleFileSelect}
           />
         {/if}
       </div>
@@ -810,6 +880,8 @@
           onImagePaste={handleImagePaste}
           focusMode={focusModeEnabled}
           spellCheck={spellCheckEnabled}
+          minimapEnabled={settingsManager.settings.minimapEnabled}
+          inlineImages={settingsManager.settings.inlineImages}
           onSelectionChange={(text) => { selectedText = text; }}
         />
       {:else}
@@ -833,6 +905,21 @@
           {theme}
           onScrollChange={handlePreviewScroll}
           scrollFraction={scrollSource === 'editor' ? scrollFraction : undefined}
+          onWikiLinkClick={async (target) => {
+            if (!currentFolder) return;
+            // Find the matching .md file
+            const files = fileTree.flatMap(function flatten(f: import('$lib/types').FileEntry): string[] {
+              if (f.is_directory && f.children) return f.children.flatMap(flatten);
+              return [f.path];
+            });
+            const normalized = target.toLowerCase().replace(/\s+/g, '-');
+            const match = files.find(f => {
+              const name = (f.split(/[\\/]/).pop() ?? '').replace(/\.md$/i, '').toLowerCase();
+              return name === normalized || name === target.toLowerCase();
+            });
+            if (match) await handleFileSelect(match);
+            else toastManager.info('File not found: ' + target);
+          }}
         />
       {:else}
         <div class="panel-placeholder">Preview will appear here</div>
@@ -910,6 +997,54 @@
   <PluginManager
     onClose={() => pluginManagerOpen = false}
     {theme}
+  />
+{/if}
+
+{#if graphViewOpen}
+  <GraphView
+    {currentFolder}
+    {currentFile}
+    {theme}
+    onFileSelect={(path) => { handleFileSelect(path); graphViewOpen = false; }}
+    onClose={() => graphViewOpen = false}
+  />
+{/if}
+
+{#if mindMapOpen}
+  <MindMapView
+    {content}
+    {theme}
+    onNavigate={handleTocNavigate}
+    onClose={() => mindMapOpen = false}
+  />
+{/if}
+
+{#if templateModalOpen}
+  <TemplateModal
+    onSelect={(templateContent) => {
+      // Create a new untitled tab with the template content
+      const name = 'untitled-' + Date.now() + '.md';
+      const path = (currentFolder ?? '') + '\\' + name;
+      openFiles = [...openFiles, { path, name, content: templateContent, originalContent: '' }];
+      currentFile = path;
+      content = templateContent;
+      templateModalOpen = false;
+    }}
+    onSaveTemplate={(name) => {
+      if (content) {
+        templateManager.saveCustom(name, content);
+        toastManager.success('Template saved: ' + name);
+      }
+    }}
+    onClose={() => templateModalOpen = false}
+  />
+{/if}
+
+{#if imageGalleryOpen}
+  <ImageGallery
+    {currentFolder}
+    onInsertImage={(md) => { insertCommand = { type: '__raw:' + md, timestamp: Date.now() }; }}
+    onClose={() => imageGalleryOpen = false}
   />
 {/if}
 

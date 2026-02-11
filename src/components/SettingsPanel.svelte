@@ -13,6 +13,8 @@
   let wordWrap = $state(settingsManager.settings.wordWrap);
   let autoSave = $state(settingsManager.settings.autoSave);
   let autoSaveDelaySeconds = $state(settingsManager.settings.autoSaveDelay / 1000);
+  let minimapEnabled = $state(settingsManager.settings.minimapEnabled);
+  let inlineImages = $state(settingsManager.settings.inlineImages);
 
   function handleFontSizeChange(event: Event) {
     const value = parseInt((event.target as HTMLInputElement).value, 10);
@@ -38,6 +40,16 @@
     settingsManager.update({ autoSave });
   }
 
+  function handleMinimapChange() {
+    minimapEnabled = !minimapEnabled;
+    settingsManager.update({ minimapEnabled });
+  }
+
+  function handleInlineImagesChange() {
+    inlineImages = !inlineImages;
+    settingsManager.update({ inlineImages });
+  }
+
   function handleAutoSaveDelayChange(event: Event) {
     const value = parseInt((event.target as HTMLInputElement).value, 10);
     if (!isNaN(value) && value >= 1 && value <= 30) {
@@ -53,6 +65,8 @@
     wordWrap = settingsManager.settings.wordWrap;
     autoSave = settingsManager.settings.autoSave;
     autoSaveDelaySeconds = settingsManager.settings.autoSaveDelay / 1000;
+    minimapEnabled = settingsManager.settings.minimapEnabled;
+    inlineImages = settingsManager.settings.inlineImages;
   }
 
   function handleKeydown(event: KeyboardEvent) {
@@ -133,6 +147,34 @@
           onclick={handleAutoSaveChange}
           role="switch"
           aria-checked={autoSave}
+        >
+          <span class="toggle-knob"></span>
+        </button>
+      </div>
+
+      <div class="setting-row">
+        <label class="setting-label" for="setting-minimap">Minimap</label>
+        <button
+          id="setting-minimap"
+          class="toggle"
+          class:active={minimapEnabled}
+          onclick={handleMinimapChange}
+          role="switch"
+          aria-checked={minimapEnabled}
+        >
+          <span class="toggle-knob"></span>
+        </button>
+      </div>
+
+      <div class="setting-row">
+        <label class="setting-label" for="setting-inline-images">Inline Image Preview</label>
+        <button
+          id="setting-inline-images"
+          class="toggle"
+          class:active={inlineImages}
+          onclick={handleInlineImagesChange}
+          role="switch"
+          aria-checked={inlineImages}
         >
           <span class="toggle-knob"></span>
         </button>

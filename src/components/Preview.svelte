@@ -15,9 +15,10 @@
     theme: Theme;
     onScrollChange?: (fraction: number) => void;
     scrollFraction?: number;
+    onWikiLinkClick?: (target: string) => void;
   }
 
-  let { content, theme, onScrollChange, scrollFraction }: Props = $props();
+  let { content, theme, onScrollChange, scrollFraction, onWikiLinkClick }: Props = $props();
 
   let activeDiagramSvg: SVGElement | null = $state(null);
   let diagramViewerOpen = $state(false);
@@ -280,7 +281,14 @@
   });
 </script>
 
-<div class="preview-panel" bind:this={previewContainer} onscroll={handleScroll}>
+<div class="preview-panel" bind:this={previewContainer} onscroll={handleScroll} onclick={(e) => {
+  const target = (e.target as HTMLElement).closest('a.wiki-link') as HTMLElement | null;
+  if (target && onWikiLinkClick) {
+    e.preventDefault();
+    const wikiTarget = target.getAttribute('data-wiki-target');
+    if (wikiTarget) onWikiLinkClick(wikiTarget);
+  }
+}}>
   {#if customCss.value}
     {@html `<style>${customCss.value}</style>`}
   {/if}

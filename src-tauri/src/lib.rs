@@ -1,8 +1,10 @@
 mod ai;
 mod commands;
 mod git;
+mod images;
 mod search;
 mod watcher;
+mod wiki;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -25,6 +27,10 @@ pub fn run() {
             watcher::start_watching,
             watcher::stop_watching,
             ai::ai_request,
+            images::scan_images,
+            images::get_image_base64,
+            images::delete_image,
+            wiki::scan_wiki_links,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

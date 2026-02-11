@@ -156,6 +156,21 @@
   text-decoration: underline;
 }
 
+.preview-content a.wiki-link {
+  color: var(--accent);
+  background: rgba(var(--accent-rgb, 66, 153, 225), 0.1);
+  padding: 0 3px;
+  border-radius: 3px;
+  border-bottom: 1px dashed var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.preview-content a.wiki-link:hover {
+  background: rgba(var(--accent-rgb, 66, 153, 225), 0.2);
+  text-decoration: none;
+}
+
 .preview-content img {
   max-width: 100%;
   height: auto;

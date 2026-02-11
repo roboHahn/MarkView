@@ -12,6 +12,8 @@
   import type { Theme } from '$lib/theme';
   import { focusModeExtension } from '$lib/focus-mode';
   import { spellCheckExtension } from '$lib/spellcheck';
+  import { createMinimapExtension } from '$lib/minimap';
+  import { createInlineImagesExtension } from '$lib/inline-images';
   import '../styles/codemirror.css';
   import '../styles/focus-mode.css';
 
@@ -28,6 +30,8 @@
     onSelectionChange?: (text: string) => void;
     focusMode?: boolean;
     spellCheck?: boolean;
+    minimapEnabled?: boolean;
+    inlineImages?: boolean;
   }
 
   let {
@@ -42,7 +46,9 @@
     onImagePaste,
     onSelectionChange,
     focusMode = false,
-    spellCheck = false
+    spellCheck = false,
+    minimapEnabled = false,
+    inlineImages = false,
   }: Props = $props();
 
   let editorContainer: HTMLDivElement | undefined = $state(undefined);
@@ -50,6 +56,8 @@
   let themeCompartment = new Compartment();
   let focusCompartment = new Compartment();
   let spellCheckCompartment = new Compartment();
+  let minimapCompartment = new Compartment();
+  let inlineImagesCompartment = new Compartment();
 
   // Track whether we are currently dispatching an internal update,
   // so we can ignore the external content prop echo.
@@ -211,6 +219,8 @@
         themeCompartment.of(getThemeExtension(theme)),
         focusCompartment.of(focusModeExtension(focusMode)),
         spellCheckCompartment.of(spellCheckExtension(spellCheck)),
+        minimapCompartment.of(createMinimapExtension(minimapEnabled)),
+        inlineImagesCompartment.of(createInlineImagesExtension(inlineImages)),
         keymap.of([
           ...defaultKeymap,
           ...historyKeymap,
@@ -359,6 +369,24 @@
     if (!editorView) return;
     editorView.dispatch({
       effects: spellCheckCompartment.reconfigure(spellCheckExtension(enabled))
+    });
+  });
+
+  // Reconfigure minimap dynamically
+  $effect(() => {
+    const enabled = minimapEnabled;
+    if (!editorView) return;
+    editorView.dispatch({
+      effects: minimapCompartment.reconfigure(createMinimapExtension(enabled))
+    });
+  });
+
+  // Reconfigure inline images dynamically
+  $effect(() => {
+    const enabled = inlineImages;
+    if (!editorView) return;
+    editorView.dispatch({
+      effects: inlineImagesCompartment.reconfigure(createInlineImagesExtension(enabled))
     });
   });
 

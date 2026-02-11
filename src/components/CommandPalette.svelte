@@ -49,6 +49,17 @@
     { id: 'tools.printPdf', name: 'Print/PDF', category: 'Tools' },
     // Navigate
     { id: 'navigate.goToLine', name: 'Go to Line', category: 'Navigate' },
+    { id: 'navigate.backlinks', name: 'Show Backlinks', shortcut: 'Ctrl+Shift+B', category: 'Navigate' },
+    { id: 'navigate.graphView', name: 'Show Graph View', shortcut: 'Ctrl+Shift+G', category: 'Navigate' },
+    // View
+    { id: 'view.minimap', name: 'Toggle Minimap', category: 'View' },
+    { id: 'view.inlineImages', name: 'Toggle Inline Images', category: 'View' },
+    { id: 'view.mindMap', name: 'Show Mind Map', shortcut: 'Ctrl+Shift+O', category: 'View' },
+    // File
+    { id: 'file.newFromTemplate', name: 'New from Template', shortcut: 'Ctrl+Shift+N', category: 'File' },
+    { id: 'file.saveAsTemplate', name: 'Save as Template', category: 'File' },
+    // Tools
+    { id: 'tools.imageGallery', name: 'Image Gallery', shortcut: 'Ctrl+Shift+I', category: 'Tools' },
   ];
 
   /**

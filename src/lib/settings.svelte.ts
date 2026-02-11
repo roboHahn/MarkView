@@ -4,6 +4,8 @@ export interface AppSettings {
   wordWrap: boolean;
   autoSave: boolean;
   autoSaveDelay: number;
+  minimapEnabled: boolean;
+  inlineImages: boolean;
 }
 
 const STORAGE_KEY = 'markview-settings';
@@ -14,6 +16,8 @@ const defaults: AppSettings = {
   wordWrap: true,
   autoSave: false,
   autoSaveDelay: 5000,
+  minimapEnabled: false,
+  inlineImages: false,
 };
 
 class SettingsManager {
