@@ -17,7 +17,7 @@
   import MarkdownToolbar from '../components/MarkdownToolbar.svelte';
   import Editor from '../components/Editor.svelte';
   import Preview from '../components/Preview.svelte';
-  import MermaidEditor from '../components/MermaidEditor.svelte';
+  import DiagramEditor from '../components/DiagramEditor.svelte';
   import Breadcrumb from '../components/Breadcrumb.svelte';
   import SettingsPanel from '../components/SettingsPanel.svelte';
   import RecentFiles from '../components/RecentFiles.svelte';
@@ -67,9 +67,9 @@
   // --- Markdown toolbar ---
   let insertCommand = $state<{ type: string; timestamp: number } | null>(null);
 
-  // --- Mermaid editor ---
-  let mermaidEditorOpen = $state(false);
-  let mermaidEditorCode = $state('');
+  // --- Diagram editor ---
+  let diagramEditorOpen = $state(false);
+  let diagramEditorCode = $state('');
 
   // --- Zen mode ---
   let zenMode = $state(false);
@@ -310,7 +310,7 @@
       case 'tools.customCss': customCssOpen = true; break;
       case 'tools.themes': themePickerOpen = true; break;
       case 'tools.plugins': pluginManagerOpen = true; break;
-      case 'tools.mermaid': openMermaidEditor(); break;
+      case 'tools.mermaid': openDiagramEditor(); break;
       case 'tools.ai': sidebarMode = sidebarMode === 'ai' ? 'files' : 'ai'; break;
       case 'navigate.backlinks': sidebarMode = 'backlinks'; break;
       case 'navigate.graphView': if (currentFolder) graphViewOpen = true; break;
@@ -529,23 +529,22 @@
     }
   }
 
-  // --- Mermaid editor ---
-  function openMermaidEditor() {
+  // --- Diagram editor ---
+  function openDiagramEditor() {
     const sel = selectedText.trim();
     if (sel) {
-      // Strip ```mermaid fences if present
-      const fenceMatch = sel.match(/^```mermaid\s*\n([\s\S]*?)```\s*$/);
-      mermaidEditorCode = fenceMatch ? fenceMatch[1].trim() : sel;
+      // Strip ```mermaid (or other) fences if present
+      const fenceMatch = sel.match(/^```(\w[\w-]*)\s*\n([\s\S]*?)```\s*$/);
+      diagramEditorCode = fenceMatch ? fenceMatch[2].trim() : sel;
     } else {
-      mermaidEditorCode = 'graph TD\n    A[Start] --> B[End]';
+      diagramEditorCode = 'flowchart TD\n    A[Start] --> B[End]';
     }
-    mermaidEditorOpen = true;
+    diagramEditorOpen = true;
   }
 
-  function handleMermaidSave(code: string) {
-    // Insert the mermaid code block at cursor
-    insertCommand = { type: '__raw:\n```mermaid\n' + code + '\n```\n', timestamp: Date.now() };
-    mermaidEditorOpen = false;
+  function handleDiagramSave(code: string, language: string) {
+    insertCommand = { type: '__raw:\n```' + language + '\n' + code + '\n```\n', timestamp: Date.now() };
+    diagramEditorOpen = false;
   }
 
   // --- ToC navigate ---
@@ -732,7 +731,7 @@
       <button class="extra-btn" onclick={() => tableEditorOpen = true} disabled={!currentFile} title="Insert Table">
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="2" width="14" height="12" rx="1" /><line x1="1" y1="6" x2="15" y2="6" /><line x1="1" y1="10" x2="15" y2="10" /><line x1="6" y1="2" x2="6" y2="14" /><line x1="11" y1="2" x2="11" y2="14" /></svg>
       </button>
-      <button class="extra-btn" onclick={() => openMermaidEditor()} disabled={!currentFile} title="Mermaid Editor">
+      <button class="extra-btn" onclick={() => openDiagramEditor()} disabled={!currentFile} title="Diagram Editor">
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12 L4 4 L8 10 L12 4 L15 12" /><circle cx="1" cy="12" r="1" fill="currentColor" /><circle cx="15" cy="12" r="1" fill="currentColor" /></svg>
       </button>
       <button class="extra-btn" onclick={() => { if (content) presentationOpen = true; }} disabled={!currentFile} title="Presentation Mode (Ctrl+Shift+M)">
@@ -961,11 +960,11 @@
   <DiffView {currentFile} {currentFolder} onClose={() => diffViewOpen = false} {theme} />
 {/if}
 
-{#if mermaidEditorOpen}
-  <MermaidEditor
-    initialCode={mermaidEditorCode}
-    onSave={handleMermaidSave}
-    onClose={() => mermaidEditorOpen = false}
+{#if diagramEditorOpen}
+  <DiagramEditor
+    initialCode={diagramEditorCode}
+    onSave={handleDiagramSave}
+    onClose={() => diagramEditorOpen = false}
     {theme}
   />
 {/if}

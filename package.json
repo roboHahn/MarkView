@@ -25,6 +25,7 @@
     "@tauri-apps/plugin-opener": "^2",
     "@types/d3-force": "^3.0.10",
     "@types/d3-zoom": "^3.0.8",
+    "@viz-js/viz": "^3.24.0",
     "codemirror": "^6.0.2",
     "d3-force": "^3.0.0",
     "d3-zoom": "^3.0.0",
@@ -36,7 +37,12 @@
     "markdown-it-footnote": "^4.0.0",
     "markdown-it-katex": "^2.0.3",
     "markdown-it-task-lists": "^2.1.1",
-    "mermaid": "^11.12.2"
+    "mermaid": "^11.12.2",
+    "nomnoml": "^1.7.0",
+    "vega": "^6.2.0",
+    "vega-embed": "^7.1.0",
+    "vega-lite": "^6.4.2",
+    "wavedrom": "^3.5.0"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "^3.0.6",

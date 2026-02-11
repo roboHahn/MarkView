@@ -52,6 +52,33 @@
     Processing --> Error : Fail
     Error --> Idle : Retry
     Done --> [*]`,
+    'ER Diagram': `erDiagram
+    CUSTOMER ||--o{ ORDER : places
+    ORDER ||--|{ LINE_ITEM : contains
+    CUSTOMER {
+        string name
+        string email
+        int id
+    }
+    ORDER {
+        int id
+        date created
+        string status
+    }
+    LINE_ITEM {
+        int quantity
+        float price
+        string product
+    }`,
+    'User Journey': `journey
+    title My Working Day
+    section Go to work
+      Make tea: 5: Me
+      Go upstairs: 3: Me
+      Do work: 1: Me, Cat
+    section Go home
+      Go downstairs: 5: Me
+      Sit down: 5: Me`,
     Gantt: `gantt
     title Project Schedule
     dateFormat  YYYY-MM-DD
@@ -66,6 +93,137 @@
     "Python" : 30
     "TypeScript" : 20
     "Rust" : 15`,
+    'Git Graph': `gitGraph
+    commit
+    commit
+    branch develop
+    checkout develop
+    commit
+    commit
+    checkout main
+    merge develop
+    commit
+    branch feature
+    checkout feature
+    commit
+    checkout main
+    merge feature`,
+    Mindmap: `mindmap
+  root((Project))
+    Planning
+      Requirements
+      Timeline
+      Budget
+    Development
+      Frontend
+      Backend
+      Database
+    Testing
+      Unit Tests
+      Integration
+      UAT
+    Deployment
+      Staging
+      Production`,
+    Timeline: `timeline
+    title History of Technology
+    1970 : Unix created
+         : C language born
+    1980 : IBM PC released
+         : MS-DOS
+    1990 : World Wide Web
+         : Linux kernel
+    2000 : Wikipedia launched
+         : iPod released
+    2010 : Instagram
+         : Docker created
+    2020 : GPT-3 released
+         : Remote work boom`,
+    Quadrant: `quadrantChart
+    title Reach and engagement of campaigns
+    x-axis Low Reach --> High Reach
+    y-axis Low Engagement --> High Engagement
+    quadrant-1 We should expand
+    quadrant-2 Need to promote
+    quadrant-3 Re-evaluate
+    quadrant-4 May be improved
+    Campaign A: [0.3, 0.6]
+    Campaign B: [0.45, 0.23]
+    Campaign C: [0.57, 0.69]
+    Campaign D: [0.78, 0.34]
+    Campaign E: [0.40, 0.34]
+    Campaign F: [0.35, 0.78]`,
+    'XY Chart': `xychart-beta
+    title "Sales Revenue"
+    x-axis [Jan, Feb, Mar, Apr, May, Jun]
+    y-axis "Revenue (in $)" 4000 --> 11000
+    bar [5000, 6000, 7500, 8200, 9800, 10500]
+    line [5000, 6000, 7500, 8200, 9800, 10500]`,
+    Sankey: `sankey-beta
+
+Budget,Marketing,30000
+Budget,Development,50000
+Budget,Operations,20000
+Marketing,Social Media,15000
+Marketing,Ads,15000
+Development,Frontend,25000
+Development,Backend,25000
+Operations,Hosting,12000
+Operations,Support,8000`,
+    Block: `block-beta
+    columns 3
+    a["Frontend"]:3
+    block:backend:2
+      columns 2
+      c["API Server"]
+      d["Auth Service"]
+    end
+    e["Database"]
+    a --> backend
+    backend --> e`,
+    Requirement: `requirementDiagram
+    requirement test_req {
+        id: 1
+        text: The system shall do something
+        risk: high
+        verifymethod: test
+    }
+    element test_entity {
+        type: simulation
+    }
+    test_entity - satisfies -> test_req`,
+    Packet: `packet-beta
+  0-15: "Source Port"
+  16-31: "Destination Port"
+  32-63: "Sequence Number"
+  64-95: "Acknowledgment Number"
+  96-99: "Data Offset"
+  100-105: "Reserved"
+  106-111: "Flags"
+  112-127: "Window Size"
+  128-143: "Checksum"
+  144-159: "Urgent Pointer"`,
+    Architecture: `architecture-beta
+    group api(cloud)[API Layer]
+
+    service db(database)[Database] in api
+    service server(server)[Server] in api
+    service disk(disk)[Storage] in api
+
+    db:R -- L:server
+    server:R -- L:disk`,
+    Kanban: `kanban
+  Todo
+    Design landing page
+      assignee: Alice
+    Write API docs
+  In Progress
+    Build auth module
+      assignee: Bob
+    Setup CI/CD
+  Done
+    Project setup
+    Database schema`,
   };
 
   let renderCounter = 0;
@@ -342,17 +500,19 @@
   .templates-bar {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
+    gap: 4px;
+    padding: 5px 12px;
     background: var(--bg-toolbar);
     border-bottom: 1px solid var(--border);
     overflow-x: auto;
     flex-shrink: 0;
+    flex-wrap: wrap;
+    max-height: 64px;
   }
 
   .btn-template {
-    padding: 2px 10px;
-    font-size: 12px;
+    padding: 2px 8px;
+    font-size: 11px;
     white-space: nowrap;
     color: var(--text-secondary);
     border-color: var(--border);

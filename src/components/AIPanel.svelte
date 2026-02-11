@@ -31,6 +31,64 @@
   // --- Inputs ---
   let diagramDescription = $state('');
   let customPrompt = $state('');
+  let diagramType = $state('mermaid:flowchart');
+  let lastDiagramFence = $state('mermaid');
+
+  // --- Diagram type options ---
+  const diagramGroups: { engine: string; types: { value: string; label: string; fence: string; hint: string }[] }[] = [
+    { engine: 'Mermaid', types: [
+      { value: 'mermaid:flowchart', label: 'Flowchart', fence: 'mermaid', hint: 'Use `flowchart TD` syntax.' },
+      { value: 'mermaid:sequence', label: 'Sequence', fence: 'mermaid', hint: 'Use `sequenceDiagram` syntax.' },
+      { value: 'mermaid:class', label: 'Class Diagram', fence: 'mermaid', hint: 'Use `classDiagram` syntax.' },
+      { value: 'mermaid:er', label: 'ER Diagram', fence: 'mermaid', hint: 'Use `erDiagram` syntax.' },
+      { value: 'mermaid:state', label: 'State Diagram', fence: 'mermaid', hint: 'Use `stateDiagram-v2` syntax.' },
+      { value: 'mermaid:gantt', label: 'Gantt Chart', fence: 'mermaid', hint: 'Use `gantt` syntax.' },
+      { value: 'mermaid:pie', label: 'Pie Chart', fence: 'mermaid', hint: 'Use `pie` syntax.' },
+      { value: 'mermaid:mindmap', label: 'Mindmap', fence: 'mermaid', hint: 'Use `mindmap` syntax.' },
+      { value: 'mermaid:timeline', label: 'Timeline', fence: 'mermaid', hint: 'Use `timeline` syntax.' },
+      { value: 'mermaid:gitgraph', label: 'Git Graph', fence: 'mermaid', hint: 'Use `gitGraph` syntax.' },
+      { value: 'mermaid:xy', label: 'XY Chart', fence: 'mermaid', hint: 'Use `xychart-beta` syntax.' },
+      { value: 'mermaid:quadrant', label: 'Quadrant', fence: 'mermaid', hint: 'Use `quadrantChart` syntax.' },
+      { value: 'mermaid:sankey', label: 'Sankey', fence: 'mermaid', hint: 'Use `sankey-beta` syntax.' },
+      { value: 'mermaid:block', label: 'Block', fence: 'mermaid', hint: 'Use `block-beta` syntax.' },
+      { value: 'mermaid:kanban', label: 'Kanban', fence: 'mermaid', hint: 'Use `kanban` syntax.' },
+      { value: 'mermaid:journey', label: 'User Journey', fence: 'mermaid', hint: 'Use `journey` syntax.' },
+      { value: 'mermaid:packet', label: 'Packet', fence: 'mermaid', hint: 'Use `packet-beta` syntax.' },
+      { value: 'mermaid:requirement', label: 'Requirement', fence: 'mermaid', hint: 'Use `requirementDiagram` syntax.' },
+      { value: 'mermaid:architecture', label: 'Architecture', fence: 'mermaid', hint: 'Use `architecture-beta` syntax.' },
+    ]},
+    { engine: 'Graphviz', types: [
+      { value: 'dot:directed', label: 'Directed Graph', fence: 'dot', hint: 'Use `digraph` DOT language.' },
+      { value: 'dot:undirected', label: 'Undirected Graph', fence: 'dot', hint: 'Use `graph` DOT language.' },
+      { value: 'dot:cluster', label: 'Cluster', fence: 'dot', hint: 'Use `subgraph cluster_` in DOT language.' },
+      { value: 'dot:record', label: 'Record/UML', fence: 'dot', hint: 'Use record shape nodes in DOT language.' },
+      { value: 'dot:tree', label: 'Tree', fence: 'dot', hint: 'Use hierarchical digraph in DOT language.' },
+    ]},
+    { engine: 'Nomnoml', types: [
+      { value: 'nomnoml:class', label: 'Class Diagram', fence: 'nomnoml', hint: 'Use Nomnoml `[Class|fields|methods]` syntax.' },
+      { value: 'nomnoml:component', label: 'Component', fence: 'nomnoml', hint: 'Use Nomnoml `[<package>]` and `[<component>]` syntax.' },
+      { value: 'nomnoml:activity', label: 'Activity', fence: 'nomnoml', hint: 'Use Nomnoml `[<start>]`, `[<choice>]`, `[<end>]` syntax.' },
+    ]},
+    { engine: 'WaveDrom', types: [
+      { value: 'wavedrom:signal', label: 'Signal Timing', fence: 'wavedrom', hint: 'Use WaveDrom JSON with `signal` array. Waves use chars: p(clock), 0, 1, x, =, etc.' },
+      { value: 'wavedrom:register', label: 'Register', fence: 'wavedrom', hint: 'Use WaveDrom JSON with `reg` array of bit fields.' },
+    ]},
+    { engine: 'Vega-Lite', types: [
+      { value: 'vegalite:bar', label: 'Bar Chart', fence: 'vega-lite', hint: 'Use Vega-Lite JSON spec with `"mark": "bar"`.' },
+      { value: 'vegalite:line', label: 'Line Chart', fence: 'vega-lite', hint: 'Use Vega-Lite JSON spec with `"mark": "line"`.' },
+      { value: 'vegalite:scatter', label: 'Scatter Plot', fence: 'vega-lite', hint: 'Use Vega-Lite JSON spec with `"mark": "point"`.' },
+      { value: 'vegalite:heatmap', label: 'Heatmap', fence: 'vega-lite', hint: 'Use Vega-Lite JSON spec with `"mark": "rect"` and color encoding.' },
+      { value: 'vegalite:area', label: 'Area Chart', fence: 'vega-lite', hint: 'Use Vega-Lite JSON spec with `"mark": "area"`.' },
+    ]},
+  ];
+
+  function getSelectedDiagramType() {
+    for (const group of diagramGroups) {
+      const found = group.types.find(t => t.value === diagramType);
+      if (found) return { engine: group.engine, ...found };
+    }
+    return { engine: 'Mermaid', value: diagramType, label: 'Diagram', fence: 'mermaid', hint: '' };
+  }
 
   // --- Derived ---
   let modelList = $derived(DEFAULT_MODELS[config.provider] ?? []);
@@ -102,8 +160,19 @@
 
   function handleGenerateDiagram() {
     if (!diagramDescription.trim()) return;
+    const dt = getSelectedDiagramType();
+    lastDiagramFence = dt.fence;
+
+    const enginePrompts: Record<string, string> = {
+      'Mermaid': `You are a Mermaid diagram expert. Generate a valid Mermaid ${dt.label} diagram. ${dt.hint} Return ONLY the Mermaid code without any markdown fences or explanations.`,
+      'Graphviz': `You are a Graphviz expert. Generate a valid ${dt.label} in DOT language. ${dt.hint} Return ONLY the DOT code without any markdown fences or explanations.`,
+      'Nomnoml': `You are a Nomnoml diagram expert. Generate a valid ${dt.label}. ${dt.hint} Return ONLY the Nomnoml code without any markdown fences or explanations.`,
+      'WaveDrom': `You are a WaveDrom expert. Generate valid WaveDrom JSON for a ${dt.label}. ${dt.hint} Return ONLY the JSON without any markdown fences or explanations.`,
+      'Vega-Lite': `You are a Vega-Lite data visualization expert. Generate a valid Vega-Lite JSON specification for a ${dt.label}. ${dt.hint} Include inline data values. Return ONLY the JSON without any markdown fences or explanations.`,
+    };
+
     runAction('diagram', [
-      { role: 'system', content: 'You are a Mermaid diagram expert. Generate a valid Mermaid diagram based on the description. Return ONLY the Mermaid code without any markdown fences or explanations.' },
+      { role: 'system', content: enginePrompts[dt.engine] || enginePrompts['Mermaid'] },
       { role: 'user', content: diagramDescription },
     ]);
   }
@@ -129,7 +198,7 @@
     if (lastAction === 'rephrase') {
       onReplaceSelection(result);
     } else if (lastAction === 'diagram') {
-      onInsertText('\n```mermaid\n' + result + '\n```\n');
+      onInsertText('\n```' + lastDiagramFence + '\n' + result + '\n```\n');
     } else {
       onInsertText(result);
     }
@@ -228,13 +297,22 @@
     <div class="action-section">
       <span class="section-label">Generate Diagram</span>
       <div class="input-group">
-        <input
-          type="text"
+        <select class="diagram-type-select" bind:value={diagramType} disabled={loading}>
+          {#each diagramGroups as group (group.engine)}
+            <optgroup label={group.engine}>
+              {#each group.types as t (t.value)}
+                <option value={t.value}>{t.label}</option>
+              {/each}
+            </optgroup>
+          {/each}
+        </select>
+        <textarea
           bind:value={diagramDescription}
           placeholder="Describe a diagram..."
           disabled={loading}
-          onkeydown={(e) => { if (e.key === 'Enter') handleGenerateDiagram(); }}
-        />
+          rows="3"
+          onkeydown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleGenerateDiagram(); }}
+        ></textarea>
         <button
           class="ai-action-btn"
           onclick={handleGenerateDiagram}
@@ -447,8 +525,30 @@
   }
 
   .input-group input:focus,
-  .input-group textarea:focus {
+  .input-group textarea:focus,
+  .input-group select:focus {
     border-color: var(--accent);
+  }
+
+  .diagram-type-select {
+    padding: 5px 6px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg-editor);
+    color: var(--text-primary);
+    font-size: 12px;
+    font-family: inherit;
+    outline: none;
+  }
+
+  .diagram-type-select optgroup {
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .diagram-type-select option {
+    font-weight: 400;
+    padding: 2px 4px;
   }
 
   /* Loading */
