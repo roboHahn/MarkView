@@ -30,6 +30,7 @@
   import CustomCssEditor from '../components/CustomCssEditor.svelte';
   import ThemePicker from '../components/ThemePicker.svelte';
   import PluginManager from '../components/PluginManager.svelte';
+  import AIPanel from '../components/AIPanel.svelte';
   import StatusBar from '../components/StatusBar.svelte';
   import Toast from '../components/Toast.svelte';
   import { settingsManager } from '$lib/settings.svelte';
@@ -45,8 +46,11 @@
   let currentThemeId = $state('dark');
 
   // --- Sidebar mode ---
-  type SidebarMode = 'files' | 'search' | 'git' | 'toc';
+  type SidebarMode = 'files' | 'search' | 'git' | 'toc' | 'ai';
   let sidebarMode: SidebarMode = $state('files');
+
+  // --- AI helper ---
+  let selectedText = $state('');
 
   // --- Sync scroll ---
   let scrollFraction = $state<number | undefined>(undefined);
@@ -254,6 +258,15 @@
     tableEditorOpen = false;
   }
 
+  // --- AI helper handlers ---
+  function handleAiInsertText(text: string) {
+    insertCommand = { type: '__raw:' + text, timestamp: Date.now() };
+  }
+
+  function handleAiReplaceSelection(text: string) {
+    insertCommand = { type: '__raw:' + text, timestamp: Date.now() };
+  }
+
   // --- Command palette ---
   function handleCommandExecute(commandId: string) {
     switch (commandId) {
@@ -281,6 +294,7 @@
       case 'tools.themes': themePickerOpen = true; break;
       case 'tools.plugins': pluginManagerOpen = true; break;
       case 'tools.mermaid': openMermaidEditor(); break;
+      case 'tools.ai': sidebarMode = sidebarMode === 'ai' ? 'files' : 'ai'; break;
     }
   }
 
@@ -588,6 +602,11 @@
       e.preventDefault();
       if (content) presentationOpen = true;
     }
+    // Ctrl+Shift+A — AI helper
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'A') {
+      e.preventDefault();
+      sidebarMode = sidebarMode === 'ai' ? 'files' : 'ai';
+    }
   }
 </script>
 
@@ -722,6 +741,12 @@
           onclick={() => sidebarMode = 'toc'}
           title="Table of Contents"
         ><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="3" x2="14" y2="3" /><line x1="5" y1="6.5" x2="14" y2="6.5" /><line x1="5" y1="10" x2="14" y2="10" /><line x1="3" y1="13.5" x2="14" y2="13.5" /></svg></button>
+        <button
+          class="sidebar-tab"
+          class:active={sidebarMode === 'ai'}
+          onclick={() => sidebarMode = 'ai'}
+          title="AI Helper (Ctrl+Shift+A)"
+        ><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1v2M4.5 2.5l1 1.7M11.5 2.5l-1 1.7" /><circle cx="8" cy="9" r="5" /><circle cx="6.5" cy="8" r="1" fill="currentColor" /><circle cx="9.5" cy="8" r="1" fill="currentColor" /><path d="M6 11c.5.6 1.2 1 2 1s1.5-.4 2-1" /></svg></button>
       </div>
       <div class="sidebar-content">
         {#if sidebarMode === 'files'}
@@ -745,12 +770,21 @@
             {content}
             onNavigate={handleTocNavigate}
           />
+        {:else if sidebarMode === 'ai'}
+          <AIPanel
+            {content}
+            {selectedText}
+            onInsertText={handleAiInsertText}
+            onReplaceSelection={handleAiReplaceSelection}
+            onClose={() => sidebarMode = 'files'}
+          />
         {/if}
       </div>
     </div>
 
     <div
       class="splitter"
+      class:hidden={!sidebarVisible || zenMode}
       class:active={draggingSplitter === 'tree'}
       onpointerdown={(e) => onSplitterPointerDown('tree', e)}
       role="separator"
@@ -772,9 +806,11 @@
           onScrollChange={handleEditorScroll}
           scrollFraction={scrollSource === 'preview' ? scrollFraction : undefined}
           {insertCommand}
+          onCommandProcessed={() => { insertCommand = null; }}
           onImagePaste={handleImagePaste}
           focusMode={focusModeEnabled}
           spellCheck={spellCheckEnabled}
+          onSelectionChange={(text) => { selectedText = text; }}
         />
       {:else}
         <div class="panel-placeholder">Select a file to edit</div>
@@ -826,7 +862,7 @@
 
 {#if mermaidEditorOpen}
   <MermaidEditor
-    initialCode="graph TD\n    A[Start] --> B[End]"
+    initialCode={"graph TD\n    A[Start] --> B[End]"}
     onSave={handleMermaidSave}
     onClose={() => mermaidEditorOpen = false}
     {theme}
@@ -989,8 +1025,14 @@
     background: var(--accent);
   }
 
+  .splitter.hidden {
+    visibility: hidden;
+    pointer-events: none;
+  }
+
   .sidebar-panel.hidden {
-    display: none;
+    visibility: hidden;
+    pointer-events: none;
   }
 
   .toolbar-extra {
@@ -1036,5 +1078,37 @@
     background: var(--accent);
     color: white;
     border-color: var(--accent);
+  }
+
+  /* Print: show only the preview panel */
+  @media print {
+    .toolbar-area,
+    .tabs-area,
+    .toolbar-extra,
+    .statusbar-area,
+    .sidebar-panel,
+    .splitter,
+    .editor-panel {
+      display: none !important;
+    }
+
+    .app-layout {
+      display: block !important;
+      height: auto !important;
+      overflow: visible !important;
+    }
+
+    .main-area {
+      display: block !important;
+      height: auto !important;
+      overflow: visible !important;
+    }
+
+    .preview-panel {
+      display: block !important;
+      height: auto !important;
+      overflow: visible !important;
+      background: white !important;
+    }
   }
 </style>

@@ -6,6 +6,14 @@
 
   let { onInsert, onClose }: Props = $props();
 
+  let listening = $state(false);
+
+  // Delay click-outside activation so the opening click doesn't immediately close us
+  $effect(() => {
+    const frame = requestAnimationFrame(() => { listening = true; });
+    return () => { cancelAnimationFrame(frame); listening = false; };
+  });
+
   const snippets = [
     { name: 'Table', icon: '\u229E', template: '| Header 1 | Header 2 | Header 3 |\n|----------|----------|----------|\n| Cell 1   | Cell 2   | Cell 3   |\n| Cell 4   | Cell 5   | Cell 6   |\n' },
     { name: 'Checklist', icon: '\u2611', template: '- [ ] Task 1\n- [ ] Task 2\n- [ ] Task 3\n' },
@@ -23,6 +31,7 @@
   }
 
   function handleClickOutside(event: MouseEvent) {
+    if (!listening) return;
     const target = event.target as HTMLElement;
     if (!target.closest('.snippet-menu')) {
       onClose();

@@ -75,6 +75,32 @@
     }
   }
 
+  function fixMermaidSyntax(source: string): string {
+    // Fix multi-line notes
+    let fixed = source.replace(
+      /note\s+(right|left)\s+of\s+(\S+)\s*\n([\s\S]*?)end\s+note/gi,
+      (_match: string, side: string, state: string, content: string) => {
+        const lines = content.trim().split('\n').map((l: string) => l.trim()).filter((l: string) => l);
+        const text = lines.join(' ').replace(/:/g, '#colon;');
+        return `note ${side} of ${state} : ${text}`;
+      }
+    );
+    // Fix double quotes inside node labels
+    fixed = fixed.replace(
+      /(\w+\s*\[)([^\]]*"[^\]]*)\]/g,
+      (_match: string, prefix: string, inner: string) => `${prefix}${inner.replace(/"/g, '#quot;')}]`
+    );
+    fixed = fixed.replace(
+      /(\w+\s*\()([^)]*"[^)]*)\)/g,
+      (_match: string, prefix: string, inner: string) => `${prefix}${inner.replace(/"/g, '#quot;')})`
+    );
+    fixed = fixed.replace(
+      /(\w+\s*\{)([^}]*"[^}]*)\}/g,
+      (_match: string, prefix: string, inner: string) => `${prefix}${inner.replace(/"/g, '#quot;')}}`
+    );
+    return fixed;
+  }
+
   // Process mermaid diagrams after slide content renders
   $effect(() => {
     // Track dependencies
@@ -94,9 +120,12 @@
 
       const mermaidNodes = slideContainer.querySelectorAll('.mermaid');
       if (mermaidNodes.length > 0) {
-        mermaidNodes.forEach((node) => {
-          node.removeAttribute('data-processed');
-        });
+        for (const node of mermaidNodes) {
+          const el = node as HTMLElement;
+          el.removeAttribute('data-processed');
+          // Fix known syntax issues (quotes in node labels, etc.)
+          el.textContent = fixMermaidSyntax(el.textContent || '');
+        }
         try {
           await mermaid.run({ nodes: mermaidNodes as NodeListOf<HTMLElement> });
         } catch {

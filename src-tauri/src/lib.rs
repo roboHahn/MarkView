@@ -1,3 +1,4 @@
+mod ai;
 mod commands;
 mod git;
 mod search;
@@ -16,12 +17,14 @@ pub fn run() {
             commands::delete_file,
             commands::create_file,
             commands::save_image,
+            commands::write_binary_file,
             search::search_files,
             git::git_status,
             git::git_diff,
             git::git_commit,
             watcher::start_watching,
             watcher::stop_watching,
+            ai::ai_request,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

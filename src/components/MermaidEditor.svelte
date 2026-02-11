@@ -14,8 +14,8 @@
   let code = $state(initialCode);
   let previewHtml = $state('');
   let error: string | null = $state(null);
-  let debounceTimer: ReturnType<typeof setTimeout> | undefined = $state(undefined);
-  let previewContainer: HTMLDivElement | undefined = $state(undefined);
+  let debounceTimer: ReturnType<typeof setTimeout> | undefined = undefined;
+  let previewEl: HTMLDivElement | undefined = $state(undefined);
 
   const templates: Record<string, string> = {
     Flowchart: `flowchart TD
@@ -68,16 +68,18 @@
     "Rust" : 15`,
   };
 
-  function generateRenderId(): string {
-    return 'mermaid-preview-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
-  }
+  let renderCounter = 0;
 
-  function cleanupMermaidOrphans() {
-    // Mermaid render() creates temp containers in document.body that can
-    // remain after errors and block clicks on the modal.
-    document.querySelectorAll('body > [id^="dmermaid-preview-"], body > .mermaid-error').forEach(el => el.remove());
-    // Also remove any generic mermaid temp containers
-    document.querySelectorAll('body > svg[id^="mermaid-preview-"]').forEach(el => el.remove());
+  // Fix known mermaid syntax issues (multi-line notes → single-line)
+  function fixMermaidSyntax(source: string): string {
+    return source.replace(
+      /note\s+(right|left)\s+of\s+(\S+)\s*\n([\s\S]*?)end\s+note/gi,
+      (_match, side, state, content) => {
+        const lines = content.trim().split('\n').map((l: string) => l.trim()).filter((l: string) => l);
+        const text = lines.join(' ').replace(/:/g, '#colon;');
+        return `note ${side} of ${state} : ${text}`;
+      }
+    );
   }
 
   async function renderPreview(source: string) {
@@ -87,23 +89,57 @@
       return;
     }
 
+    // Snapshot body children BEFORE mermaid touches the DOM
+    const bodySnapshot = new Set(Array.from(document.body.children));
+    const fixedSource = fixMermaidSyntax(source);
+
     try {
       mermaid.initialize({
         startOnLoad: false,
         theme: theme === 'dark' ? 'dark' : 'default',
       });
 
-      const renderId = generateRenderId();
-      const { svg } = await mermaid.render(renderId, source);
+      renderCounter++;
+      const renderId = 'mermaid-ed-' + renderCounter;
+      const { svg } = await mermaid.render(renderId, fixedSource);
       previewHtml = svg;
       error = null;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
-      // Keep last successful preview visible when there is an error
     } finally {
-      cleanupMermaidOrphans();
+      // Remove ANY element added to body by mermaid during render
+      Array.from(document.body.children).forEach(el => {
+        if (!bodySnapshot.has(el)) {
+          el.remove();
+        }
+      });
     }
   }
+
+  // Render SVG preview inside Shadow DOM so mermaid's <style> tags
+  // cannot leak into the host document and break button interactions.
+  $effect(() => {
+    const html = previewHtml; // track reactivity
+    if (!previewEl) return;
+
+    let shadow = previewEl.shadowRoot;
+    if (!shadow) {
+      shadow = previewEl.attachShadow({ mode: 'open' });
+    }
+
+    if (html) {
+      const bg = theme === 'dark' ? '#1e1e2e' : '#ffffff';
+      shadow.innerHTML =
+        `<style>
+          :host { display:flex; flex:1; }
+          .wrap { display:flex; align-items:flex-start; justify-content:center; flex:1; background:${bg}; }
+          svg { max-width:100%; height:auto; }
+        </style>
+        <div class="wrap">${html}</div>`;
+    } else {
+      shadow.innerHTML = '';
+    }
+  });
 
   function scheduleRender() {
     if (debounceTimer !== undefined) {
@@ -126,13 +162,12 @@
     renderPreview(code);
   });
 
-  // Cleanup debounce timer and orphaned mermaid elements on destroy
+  // Cleanup debounce timer on destroy
   $effect(() => {
     return () => {
       if (debounceTimer !== undefined) {
         clearTimeout(debounceTimer);
       }
-      cleanupMermaidOrphans();
     };
   });
 
@@ -143,16 +178,8 @@
     }
     if (event.key === 's' && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();
-      handleSave();
+      onSave(code);
     }
-  }
-
-  function handleSave() {
-    onSave(code);
-  }
-
-  function insertTemplate(name: string) {
-    code = templates[name];
   }
 
   function handleInput(event: Event) {
@@ -160,6 +187,7 @@
     code = target.value;
   }
 
+  // Standard overlay click handler (same pattern as CommandPalette)
   function handleOverlayClick() {
     onClose();
   }
@@ -179,10 +207,10 @@
     <div class="topbar">
       <span class="topbar-title">Mermaid Editor</span>
       <div class="topbar-actions">
-        <button class="btn btn-primary" onclick={handleSave}>
+        <button type="button" class="btn btn-primary" onclick={() => onSave(code)}>
           Save
         </button>
-        <button class="btn" onclick={() => onClose()}>
+        <button type="button" class="btn" onclick={() => onClose()}>
           Close
         </button>
       </div>
@@ -191,7 +219,7 @@
     <!-- Template buttons -->
     <div class="templates-bar">
       {#each Object.keys(templates) as name (name)}
-        <button class="btn btn-template" onclick={() => insertTemplate(name)}>
+        <button type="button" class="btn btn-template" onclick={() => { code = templates[name]; }}>
           {name}
         </button>
       {/each}
@@ -217,18 +245,15 @@
       <div class="splitter"></div>
 
       <!-- Preview pane -->
-      <div class="preview-pane" bind:this={previewContainer}>
+      <div class="preview-pane">
         {#if error}
           <div class="error-display">
             <span class="error-label">Syntax Error</span>
             <pre class="error-message">{error}</pre>
           </div>
         {/if}
-        {#if previewHtml}
-          <div class="preview-content">
-            {@html previewHtml}
-          </div>
-        {:else if !error}
+        <div class="preview-shadow-host" bind:this={previewEl}></div>
+        {#if !previewHtml && !error}
           <div class="preview-placeholder">
             Enter mermaid code on the left to see a live preview
           </div>
@@ -243,7 +268,7 @@
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.5);
-    z-index: 500;
+    z-index: 9999;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -273,8 +298,6 @@
     border-bottom: 1px solid var(--border);
     user-select: none;
     -webkit-user-select: none;
-    position: relative;
-    z-index: 10;
   }
 
   .topbar-title {
@@ -391,16 +414,10 @@
     min-width: 0;
   }
 
-  .preview-content {
+  .preview-shadow-host {
     display: flex;
-    align-items: flex-start;
-    justify-content: center;
     flex: 1;
-  }
-
-  .preview-content :global(svg) {
-    max-width: 100%;
-    height: auto;
+    min-height: 0;
   }
 
   .preview-placeholder {

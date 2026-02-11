@@ -1,5 +1,6 @@
 <script lang="ts">
   import { exportToHtml, printDocument } from '$lib/export';
+  import { exportToDocx } from '$lib/docx-export';
 
   interface Props {
     content: string;
@@ -46,6 +47,15 @@
     closeMenu();
     printDocument();
   }
+
+  async function handleExportDocx() {
+    closeMenu();
+    try {
+      await exportToDocx(content, fileName);
+    } catch (err) {
+      console.error('DOCX export failed:', err);
+    }
+  }
 </script>
 
 <svelte:document onclick={handleClickOutside} />
@@ -81,6 +91,14 @@
           <rect x="4" y="10" width="8" height="5" />
         </svg>
         <span>Print / Save as PDF</span>
+      </button>
+      <button class="export-dropdown-item" onclick={handleExportDocx}>
+        <svg viewBox="0 0 16 16" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 1h8l3 3v9a2 2 0 01-2 2H4a2 2 0 01-2-2V3a2 2 0 012-2z" />
+          <path d="M5 9h6" />
+          <path d="M5 12h4" />
+        </svg>
+        <span>Export as DOCX</span>
       </button>
     </div>
   {/if}

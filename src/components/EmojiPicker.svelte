@@ -7,6 +7,13 @@
   let { onSelect, onClose }: Props = $props();
 
   let search = $state('');
+  let listening = $state(false);
+
+  // Delay click-outside activation so the opening click doesn't immediately close us
+  $effect(() => {
+    const frame = requestAnimationFrame(() => { listening = true; });
+    return () => { cancelAnimationFrame(frame); listening = false; };
+  });
 
   const emojiData = [
     { category: 'Smileys', emojis: ['😀','😂','🤣','😊','😍','🤔','😎','😢','😡','🥳','😴','🤯','🥰','😇','🤩'] },
@@ -33,6 +40,7 @@
   }
 
   function handleClickOutside(event: MouseEvent) {
+    if (!listening) return;
     const target = event.target as HTMLElement;
     if (!target.closest('.emoji-picker')) {
       onClose();

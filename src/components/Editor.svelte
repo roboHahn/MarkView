@@ -4,8 +4,11 @@
   import { markdown } from '@codemirror/lang-markdown';
   import { oneDark } from '@codemirror/theme-one-dark';
   import { defaultKeymap, history, historyKeymap, undo, redo } from '@codemirror/commands';
-  import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language';
+  import { syntaxHighlighting, defaultHighlightStyle, foldGutter, foldKeymap } from '@codemirror/language';
+  import { markdownFoldService } from '$lib/markdown-fold';
+  import { markdownAutocompletion } from '$lib/autocomplete';
   import { search, searchKeymap, openSearchPanel } from '@codemirror/search';
+  import { untrack } from 'svelte';
   import type { Theme } from '$lib/theme';
   import { focusModeExtension } from '$lib/focus-mode';
   import { spellCheckExtension } from '$lib/spellcheck';
@@ -20,7 +23,9 @@
     onScrollChange?: (fraction: number) => void;
     scrollFraction?: number;
     insertCommand?: { type: string; timestamp: number } | null;
+    onCommandProcessed?: () => void;
     onImagePaste?: (file: File) => void;
+    onSelectionChange?: (text: string) => void;
     focusMode?: boolean;
     spellCheck?: boolean;
   }
@@ -33,7 +38,9 @@
     onScrollChange,
     scrollFraction,
     insertCommand,
+    onCommandProcessed,
     onImagePaste,
+    onSelectionChange,
     focusMode = false,
     spellCheck = false
   }: Props = $props();
@@ -184,16 +191,22 @@
     view.focus();
   }
 
-  // Create the editor when the container element is available
+  // Create the editor ONCE when the container element mounts.
+  // Use untrack() so reactive props (content, theme, etc.) don't cause
+  // the editor to be destroyed & recreated (which wipes undo history).
+  // Separate $effects below handle syncing content, theme, focusMode, spellCheck.
   $effect(() => {
     if (!editorContainer) return;
 
-    const state = EditorState.create({
+    const state = untrack(() => EditorState.create({
       doc: content,
       extensions: [
         markdown(),
         history(),
         search(),
+        foldGutter(),
+        markdownFoldService(),
+        markdownAutocompletion(),
         EditorView.lineWrapping,
         themeCompartment.of(getThemeExtension(theme)),
         focusCompartment.of(focusModeExtension(focusMode)),
@@ -202,6 +215,7 @@
           ...defaultKeymap,
           ...historyKeymap,
           ...searchKeymap,
+          ...foldKeymap,
           {
             key: 'Mod-s',
             run: () => {
@@ -228,11 +242,13 @@
           if (update.docChanged) {
             isInternalUpdate = true;
             onContentChange(update.state.doc.toString());
-            // Reset flag asynchronously so the prop update from the
-            // parent is still within the same microtask batch.
             queueMicrotask(() => {
               isInternalUpdate = false;
             });
+          }
+          if (update.selectionSet && onSelectionChange) {
+            const { from, to } = update.state.selection.main;
+            onSelectionChange(from !== to ? update.state.sliceDoc(from, to) : '');
           }
         }),
         EditorView.domEventHandlers({
@@ -269,7 +285,7 @@
           }
         })
       ]
-    });
+    }));
 
     const view = new EditorView({
       state,
@@ -353,6 +369,8 @@
     if (!editorView || !command) return;
 
     handleInsertCommand(editorView, command.type);
+    // Clear the command after processing to prevent re-execution
+    onCommandProcessed?.();
   });
 </script>
 

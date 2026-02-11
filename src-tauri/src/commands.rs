@@ -188,6 +188,18 @@ pub fn create_file(path: String) -> Result<(), String> {
         .map_err(|e| format!("Failed to create file '{}': {}", path, e))
 }
 
+/// Writes binary data to a file at `path`, creating parent directories if needed.
+#[tauri::command]
+pub fn write_binary_file(path: String, data: Vec<u8>) -> Result<(), String> {
+    let file_path = PathBuf::from(&path);
+    if let Some(parent) = file_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create directories for '{}': {}", path, e))?;
+    }
+    fs::write(&file_path, &data)
+        .map_err(|e| format!("Failed to write binary file '{}': {}", path, e))
+}
+
 /// Saves image data to `{folder}/assets/{filename}`.
 /// Creates the `assets` subdirectory if it doesn't exist.
 /// Returns the full path of the saved image.
