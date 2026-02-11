@@ -317,7 +317,6 @@
           oninput={handleInput}
           spellcheck="false"
           autocomplete="off"
-          autocorrect="off"
           autocapitalize="off"
           placeholder="Enter diagram code..."
         ></textarea>

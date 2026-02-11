@@ -1,8 +1,10 @@
 mod ai;
 mod commands;
+mod error;
 mod git;
 mod images;
 mod search;
+mod utils;
 mod watcher;
 mod wiki;
 

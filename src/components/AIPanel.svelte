@@ -25,7 +25,7 @@
   // --- Action state ---
   let loading = $state(false);
   let result = $state('');
-  let lastAction = $state<'rephrase' | 'diagram' | 'summarize' | 'custom' | null>(null);
+  let lastAction = $state<'rephrase' | 'diagram' | 'summarize' | 'custom' | 'factcheck' | null>(null);
   let errorMsg = $state('');
 
   // --- Inputs ---
@@ -123,7 +123,7 @@
 
   // --- AI actions ---
   async function runAction(
-    action: 'rephrase' | 'diagram' | 'summarize' | 'custom',
+    action: 'rephrase' | 'diagram' | 'summarize' | 'custom' | 'factcheck',
     messages: AiMessage[]
   ) {
     loading = true;
@@ -145,6 +145,27 @@
     if (!hasSelection) return;
     runAction('rephrase', [
       { role: 'system', content: 'You are a writing assistant. Rephrase the given text to improve clarity and style while preserving the meaning. Return only the rephrased text, no explanations.' },
+      { role: 'user', content: selectedText },
+    ]);
+  }
+
+  function handleFactCheck() {
+    if (!hasSelection) return;
+    runAction('factcheck', [
+      {
+        role: 'system',
+        content: `You are a rigorous fact-checker. Analyze the given text and verify each factual claim.
+
+For EACH distinct claim found, output a line in this exact format:
+[TRUE] claim text — brief explanation why it's true
+[FALSE] claim text — brief explanation why it's false, with the correct fact
+[UNCERTAIN] claim text — brief explanation why it cannot be verified
+
+After all claims, add a blank line and a final summary line:
+VERDICT: X of Y claims verified as true.
+
+Be concise. Do not add any other text or markdown formatting.`
+      },
       { role: 'user', content: selectedText },
     ]);
   }
@@ -291,6 +312,14 @@
         >
           Summarize
         </button>
+        <button
+          class="ai-action-btn fact-check-btn"
+          onclick={handleFactCheck}
+          disabled={loading || !hasSelection}
+          title={hasSelection ? 'Fact-check selected text' : 'Select text first'}
+        >
+          Fact Check
+        </button>
       </div>
     </div>
 
@@ -361,13 +390,42 @@
   {#if result}
     <div class="ai-result">
       <div class="result-header">
-        <span class="section-label">Result</span>
+        <span class="section-label">{lastAction === 'factcheck' ? 'Fact Check' : 'Result'}</span>
         <div class="result-actions">
-          <button class="accept-btn" onclick={handleAccept}>Accept</button>
+          {#if lastAction !== 'factcheck'}
+            <button class="accept-btn" onclick={handleAccept}>Accept</button>
+          {/if}
           <button class="discard-btn" onclick={handleDiscard}>Discard</button>
         </div>
       </div>
-      <pre class="result-content">{result}</pre>
+      {#if lastAction === 'factcheck'}
+        <div class="factcheck-content">
+          {#each result.split('\n') as line}
+            {#if line.startsWith('[TRUE]')}
+              <div class="fc-line fc-true">
+                <span class="fc-badge fc-badge-true">TRUE</span>
+                <span class="fc-text">{line.replace('[TRUE]', '').trim()}</span>
+              </div>
+            {:else if line.startsWith('[FALSE]')}
+              <div class="fc-line fc-false">
+                <span class="fc-badge fc-badge-false">FALSE</span>
+                <span class="fc-text">{line.replace('[FALSE]', '').trim()}</span>
+              </div>
+            {:else if line.startsWith('[UNCERTAIN]')}
+              <div class="fc-line fc-uncertain">
+                <span class="fc-badge fc-badge-uncertain">???</span>
+                <span class="fc-text">{line.replace('[UNCERTAIN]', '').trim()}</span>
+              </div>
+            {:else if line.startsWith('VERDICT:')}
+              <div class="fc-verdict">{line}</div>
+            {:else if line.trim()}
+              <div class="fc-line"><span class="fc-text">{line}</span></div>
+            {/if}
+          {/each}
+        </div>
+      {:else}
+        <pre class="result-content">{result}</pre>
+      {/if}
     </div>
   {/if}
 </div>
@@ -661,5 +719,93 @@
     background: var(--bg-editor);
     flex: 1;
     min-height: 60px;
+  }
+
+  /* Fact Check button */
+  .fact-check-btn {
+    background: color-mix(in srgb, #3b82f6 12%, var(--bg-editor));
+    border-color: color-mix(in srgb, #3b82f6 40%, var(--border));
+  }
+
+  .fact-check-btn:hover:not(:disabled) {
+    background: color-mix(in srgb, #3b82f6 25%, var(--bg-editor));
+    border-color: #3b82f6;
+  }
+
+  /* Fact Check result */
+  .factcheck-content {
+    padding: 8px;
+    overflow: auto;
+    background: var(--bg-editor);
+    flex: 1;
+    min-height: 60px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .fc-line {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    font-size: 12px;
+    line-height: 1.5;
+    padding: 4px 6px;
+    border-radius: 4px;
+  }
+
+  .fc-true {
+    background: color-mix(in srgb, #22c55e 8%, transparent);
+  }
+
+  .fc-false {
+    background: color-mix(in srgb, #ef4444 8%, transparent);
+  }
+
+  .fc-uncertain {
+    background: color-mix(in srgb, #f59e0b 8%, transparent);
+  }
+
+  .fc-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  .fc-badge-true {
+    background: #22c55e;
+    color: #fff;
+  }
+
+  .fc-badge-false {
+    background: #ef4444;
+    color: #fff;
+  }
+
+  .fc-badge-uncertain {
+    background: #f59e0b;
+    color: #fff;
+  }
+
+  .fc-text {
+    color: var(--text-primary);
+    word-break: break-word;
+  }
+
+  .fc-verdict {
+    margin-top: 4px;
+    padding: 6px 8px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
   }
 </style>

@@ -2028,6 +2028,7 @@ name = "markview"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "once_cell",
  "regex",
  "reqwest 0.12.28",
  "serde",
@@ -2036,6 +2037,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
+ "thiserror 1.0.69",
  "tokio",
  "walkdir",
 ]

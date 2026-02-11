@@ -4,6 +4,9 @@ use std::fs;
 use std::path::PathBuf;
 use walkdir::WalkDir;
 
+use crate::error::AppError;
+use crate::utils::{is_markdown_file, validate_directory};
+
 /// Image file extensions we consider for scanning.
 const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "svg", "webp"];
 
@@ -18,15 +21,11 @@ pub struct ImageInfo {
 
 /// Scan a folder for image files and check which .md files reference them.
 ///
-/// Walks the directory tree, collects all image files (png, jpg, jpeg, gif, svg, webp),
-/// reads every `.md` file, and checks whether each image's filename appears in any
-/// markdown file's content. Returns an `ImageInfo` for each image found.
+/// Streams through markdown files one at a time to avoid loading everything
+/// into RAM simultaneously.
 #[tauri::command]
-pub fn scan_images(folder: String) -> Result<Vec<ImageInfo>, String> {
-    let root = PathBuf::from(&folder);
-    if !root.is_dir() {
-        return Err(format!("'{}' is not a directory", folder));
-    }
+pub fn scan_images(folder: String) -> Result<Vec<ImageInfo>, AppError> {
+    let root = validate_directory(&folder)?;
 
     // Collect all entries in one pass so we can separate images and md files.
     let entries: Vec<walkdir::DirEntry> = WalkDir::new(&root)
@@ -35,7 +34,6 @@ pub fn scan_images(folder: String) -> Result<Vec<ImageInfo>, String> {
         .filter(|e| e.file_type().is_file())
         .collect();
 
-    // Separate image files and markdown files.
     let mut image_paths: Vec<PathBuf> = Vec::new();
     let mut md_paths: Vec<PathBuf> = Vec::new();
 
@@ -45,30 +43,45 @@ pub fn scan_images(folder: String) -> Result<Vec<ImageInfo>, String> {
             let ext_lower = ext.to_string_lossy().to_lowercase();
             if IMAGE_EXTENSIONS.contains(&ext_lower.as_str()) {
                 image_paths.push(path.to_path_buf());
-            } else if ext.eq_ignore_ascii_case("md") {
+            } else if is_markdown_file(path) {
                 md_paths.push(path.to_path_buf());
             }
         }
     }
 
-    // Read all markdown files into memory (path + content).
-    let md_contents: Vec<(String, String)> = md_paths
+    // Collect all image names first so we can search efficiently.
+    let image_names: Vec<String> = image_paths
         .iter()
-        .filter_map(|p| {
-            let content = fs::read_to_string(p).ok()?;
-            Some((p.to_string_lossy().to_string(), content))
+        .map(|p| {
+            p.file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default()
         })
         .collect();
 
-    // Build ImageInfo for each image file.
-    let mut results: Vec<ImageInfo> = Vec::new();
+    // Stream through markdown files one at a time instead of loading all at once.
+    // For each markdown file, check which image names it references.
+    // Build a map: image_index -> vec of md paths that reference it.
+    let mut used_in_map: Vec<Vec<String>> = vec![Vec::new(); image_names.len()];
 
-    for img_path in &image_paths {
-        let name = img_path
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_default();
+    for md_path in &md_paths {
+        let content = match fs::read_to_string(md_path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let md_path_str = md_path.to_string_lossy().into_owned();
 
+        for (i, img_name) in image_names.iter().enumerate() {
+            if content.contains(img_name.as_str()) {
+                used_in_map[i].push(md_path_str.clone());
+            }
+        }
+    }
+
+    // Build results.
+    let mut results: Vec<ImageInfo> = Vec::with_capacity(image_paths.len());
+
+    for (i, img_path) in image_paths.iter().enumerate() {
         let extension = img_path
             .extension()
             .map(|e| e.to_string_lossy().to_lowercase())
@@ -76,46 +89,30 @@ pub fn scan_images(folder: String) -> Result<Vec<ImageInfo>, String> {
 
         let size = fs::metadata(img_path).map(|m| m.len()).unwrap_or(0);
 
-        // Check which markdown files reference this image by filename.
-        let used_in: Vec<String> = md_contents
-            .iter()
-            .filter(|(_md_path, content)| content.contains(&name))
-            .map(|(md_path, _content)| md_path.clone())
-            .collect();
-
         results.push(ImageInfo {
-            path: img_path.to_string_lossy().to_string(),
-            name,
+            path: img_path.to_string_lossy().into_owned(),
+            name: image_names[i].clone(),
             size,
             extension,
-            used_in,
+            used_in: std::mem::take(&mut used_in_map[i]),
         });
     }
 
-    // Sort by name for consistent ordering.
-    results.sort_by(|a, b| {
-        a.name
-            .to_lowercase()
-            .cmp(&b.name.to_lowercase())
-    });
+    results.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
     Ok(results)
 }
 
 /// Read an image file and return its base64 representation as a data URI.
-///
-/// The returned string has the format `data:<mime>;base64,<encoded>`.
-/// Supported MIME types: png, jpg/jpeg, gif, svg, webp.
 #[tauri::command]
-pub fn get_image_base64(path: String) -> Result<String, String> {
+pub fn get_image_base64(path: String) -> Result<String, AppError> {
     let file_path = PathBuf::from(&path);
 
     if !file_path.exists() {
-        return Err(format!("Image file '{}' does not exist", path));
+        return Err(AppError::NotFound(path));
     }
 
-    let data = fs::read(&file_path)
-        .map_err(|e| format!("Failed to read image '{}': {}", path, e))?;
+    let data = fs::read(&file_path)?;
 
     let extension = file_path
         .extension()
@@ -128,7 +125,7 @@ pub fn get_image_base64(path: String) -> Result<String, String> {
         "gif" => "image/gif",
         "svg" => "image/svg+xml",
         "webp" => "image/webp",
-        _ => return Err(format!("Unsupported image extension: {}", extension)),
+        _ => return Err(AppError::Other(format!("Unsupported image extension: {}", extension))),
     };
 
     let encoded = base64::engine::general_purpose::STANDARD.encode(&data);
@@ -138,13 +135,13 @@ pub fn get_image_base64(path: String) -> Result<String, String> {
 
 /// Delete an image file from disk.
 #[tauri::command]
-pub fn delete_image(path: String) -> Result<(), String> {
+pub fn delete_image(path: String) -> Result<(), AppError> {
     let file_path = PathBuf::from(&path);
 
     if !file_path.exists() {
-        return Err(format!("Image file '{}' does not exist", path));
+        return Err(AppError::NotFound(path));
     }
 
-    fs::remove_file(&file_path)
-        .map_err(|e| format!("Failed to delete image '{}': {}", path, e))
+    fs::remove_file(&file_path)?;
+    Ok(())
 }

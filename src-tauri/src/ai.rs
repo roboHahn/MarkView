@@ -1,4 +1,7 @@
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
+
+use crate::error::AppError;
 
 #[derive(Deserialize)]
 pub struct AiRequest {
@@ -14,14 +17,20 @@ pub struct AiResponse {
     pub body: String,
 }
 
+/// 60-second timeout for AI requests.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+
 #[tauri::command]
-pub async fn ai_request(request: AiRequest) -> Result<AiResponse, String> {
-    let client = reqwest::Client::new();
+pub async fn ai_request(request: AiRequest) -> Result<AiResponse, AppError> {
+    let client = reqwest::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .map_err(|e| AppError::Network(format!("Failed to create HTTP client: {}", e)))?;
 
     let mut req_builder = match request.method.to_uppercase().as_str() {
         "POST" => client.post(&request.url),
         "GET" => client.get(&request.url),
-        _ => return Err(format!("Unsupported method: {}", request.method)),
+        _ => return Err(AppError::Other(format!("Unsupported method: {}", request.method))),
     };
 
     for (key, value) in &request.headers {
@@ -37,13 +46,13 @@ pub async fn ai_request(request: AiRequest) -> Result<AiResponse, String> {
     let response = req_builder
         .send()
         .await
-        .map_err(|e| format!("HTTP request failed: {}", e))?;
+        .map_err(|e| AppError::Network(format!("HTTP request failed: {}", e)))?;
 
     let status = response.status().as_u16();
     let body = response
         .text()
         .await
-        .map_err(|e| format!("Failed to read response: {}", e))?;
+        .map_err(|e| AppError::Network(format!("Failed to read response: {}", e)))?;
 
     Ok(AiResponse { status, body })
 }

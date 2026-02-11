@@ -1,12 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
-  import { open } from '@tauri-apps/plugin-dialog';
   import { type Theme } from '$lib/theme';
   import { themes, getTheme, applyTheme, getStoredThemeId, storeThemeId } from '$lib/themes';
   import { toastManager } from '$lib/toast.svelte';
-  import { startWatching, stopWatching, type FileChangeEvent } from '$lib/watcher';
-  import type { FileEntry } from '$lib/types';
+  import { stopWatching } from '$lib/watcher';
   import { customCss } from '$lib/custom-css.svelte';
   import Toolbar from '../components/Toolbar.svelte';
   import FileTree from '../components/FileTree.svelte';
@@ -45,96 +42,20 @@
   import { recentFiles } from '$lib/recent-files.svelte';
   import '../styles/katex-import.css';
 
-  // --- App State ---
-  let currentFolder: string | null = $state(null);
-  let currentFile: string | null = $state(null);
-  let fileTree: FileEntry[] = $state([]);
-  let content: string = $state('');
+  // --- Stores ---
+  import { workspace } from '$lib/stores/workspace.svelte';
+  import { modal, type ModalId } from '$lib/stores/modal.svelte';
+  import { layout } from '$lib/stores/layout.svelte';
+
+  // --- Theme state (kept local — tightly coupled to applyTheme) ---
   let theme: Theme = $state('dark');
   let currentThemeId = $state('dark');
 
-  // --- Sidebar mode ---
-  type SidebarMode = 'files' | 'search' | 'git' | 'toc' | 'ai' | 'backlinks';
-  let sidebarMode: SidebarMode = $state('files');
-
-  // --- AI helper ---
-  let selectedText = $state('');
-
-  // --- Sync scroll ---
-  let scrollFraction = $state<number | undefined>(undefined);
-  let scrollSource = $state<'editor' | 'preview' | null>(null);
-
-  // --- Markdown toolbar ---
-  let insertCommand = $state<{ type: string; timestamp: number } | null>(null);
-
-  // --- Diagram editor ---
-  let diagramEditorOpen = $state(false);
+  // --- Diagram editor data ---
   let diagramEditorCode = $state('');
 
-  // --- Zen mode ---
-  let zenMode = $state(false);
-
-  // --- Sidebar visibility ---
-  let sidebarVisible = $state(true);
-
-  // --- Modals/dropdowns ---
-  let settingsOpen = $state(false);
-  let recentFilesOpen = $state(false);
-  let diffViewOpen = $state(false);
-  let emojiPickerOpen = $state(false);
-  let snippetMenuOpen = $state(false);
-  let commandPaletteOpen = $state(false);
-  let tableEditorOpen = $state(false);
-  let presentationOpen = $state(false);
-  let customCssOpen = $state(false);
-  let themePickerOpen = $state(false);
-  let pluginManagerOpen = $state(false);
-  let graphViewOpen = $state(false);
-  let mindMapOpen = $state(false);
-  let templateModalOpen = $state(false);
-  let imageGalleryOpen = $state(false);
-
-  // --- Editor modes ---
-  let focusModeEnabled = $state(false);
-  let spellCheckEnabled = $state(false);
-
-  // --- Tabs (open files) ---
-  interface OpenFile {
-    path: string;
-    name: string;
-    content: string;
-    originalContent: string;
-  }
-  let openFiles: OpenFile[] = $state([]);
-
-  let openFileTabs = $derived(
-    openFiles.map(f => ({
-      path: f.path,
-      name: f.name,
-      modified: f.content !== f.originalContent,
-    }))
-  );
-
-  // --- Panel sizing ---
-  let fileTreeWidth = $state(220);
-  let editorFraction = $state(0.5);
-
-  // --- Splitter dragging ---
-  let draggingSplitter: 'tree' | 'editor' | null = $state(null);
+  // --- Container ref for splitter ---
   let containerEl: HTMLDivElement | undefined = $state(undefined);
-
-  const MIN_TREE = 150;
-  const MIN_EDITOR = 200;
-  const MIN_PREVIEW = 200;
-  const SPLITTER_WIDTH = 4;
-
-  let editorFr = $derived(Math.round(editorFraction * 1000));
-  let previewFr = $derived(Math.round((1 - editorFraction) * 1000));
-  let gridColumns = $derived(
-    sidebarVisible && !zenMode
-      ? `${fileTreeWidth}px ${SPLITTER_WIDTH}px ${editorFr}fr ${SPLITTER_WIDTH}px ${previewFr}fr`
-      : `0px 0px ${editorFr}fr ${SPLITTER_WIDTH}px ${previewFr}fr`
-  );
 
   // --- Lifecycle ---
   onMount(() => {
@@ -143,7 +64,6 @@
     theme = themeDef.type;
     applyTheme(themeDef);
 
-    // Register built-in plugins
     for (const plugin of builtinPlugins) {
       pluginManager.register(plugin);
     }
@@ -153,108 +73,8 @@
     };
   });
 
-  // --- Handlers ---
-  async function handleOpenFolder() {
-    const selected = await open({ directory: true, multiple: false });
-    if (selected && typeof selected === 'string') {
-      // Stop previous watcher
-      await stopWatching().catch(() => {});
-
-      currentFolder = selected;
-      currentFile = null;
-      content = '';
-      openFiles = [];
-      sidebarMode = 'files';
-
-      try {
-        fileTree = await invoke<FileEntry[]>('read_directory', { path: selected });
-      } catch (err) {
-        toastManager.error('Failed to read directory');
-        fileTree = [];
-      }
-
-      // Start file watcher
-      startWatching(selected, handleFileChanges).catch(() => {});
-      recentFiles.add(selected, 'folder');
-    }
-  }
-
-  async function handleFileSelect(path: string) {
-    // Check if file is already open in tabs
-    const existing = openFiles.find(f => f.path === path);
-    if (existing) {
-      currentFile = path;
-      content = existing.content;
-      return;
-    }
-
-    try {
-      const fileContent = await invoke<string>('read_file', { path });
-      const name = path.split(/[\\/]/).pop() ?? path;
-
-      openFiles = [...openFiles, {
-        path,
-        name,
-        content: fileContent,
-        originalContent: fileContent,
-      }];
-
-      currentFile = path;
-      content = fileContent;
-      recentFiles.add(path, 'file');
-    } catch (err) {
-      toastManager.error('Failed to read file');
-    }
-  }
-
-  function handleSelectTab(path: string) {
-    const file = openFiles.find(f => f.path === path);
-    if (file) {
-      currentFile = path;
-      content = file.content;
-    }
-  }
-
-  function handleCloseTab(path: string) {
-    openFiles = openFiles.filter(f => f.path !== path);
-    if (currentFile === path) {
-      const next = openFiles.length > 0 ? openFiles[openFiles.length - 1] : null;
-      if (next) {
-        currentFile = next.path;
-        content = next.content;
-      } else {
-        currentFile = null;
-        content = '';
-      }
-    }
-  }
-
-  function handleContentChange(newContent: string) {
-    content = newContent;
-    // Update the content in the open files array
-    const idx = openFiles.findIndex(f => f.path === currentFile);
-    if (idx !== -1) {
-      openFiles[idx].content = newContent;
-    }
-  }
-
-  async function handleSave() {
-    if (!currentFile) return;
-    try {
-      await invoke('write_file', { path: currentFile, content });
-      // Update original content to mark as saved
-      const idx = openFiles.findIndex(f => f.path === currentFile);
-      if (idx !== -1) {
-        openFiles[idx].originalContent = content;
-      }
-      toastManager.success('File saved');
-    } catch (err) {
-      toastManager.error('Failed to save file');
-    }
-  }
-
+  // --- Theme ---
   function handleToggleTheme() {
-    // Cycle to next theme type (dark ↔ light)
     const current = getTheme(currentThemeId);
     const nextType = current.type === 'dark' ? 'light' : 'dark';
     const nextTheme = themes.find(t => t.type === nextType) ?? themes[0];
@@ -269,89 +89,102 @@
     storeThemeId(themeId);
   }
 
-  // --- Table editor ---
-  function handleTableInsert(markdown: string) {
-    insertCommand = { type: '__raw:\n' + markdown + '\n', timestamp: Date.now() };
-    tableEditorOpen = false;
+  // --- Toolbar insert helpers ---
+  function handleToolbarInsert(type: string) {
+    workspace.sendInsert(type);
   }
 
-  // --- AI helper handlers ---
+  function handleTableInsert(markdown: string) {
+    workspace.sendInsert('__raw:\n' + markdown + '\n');
+    modal.close();
+  }
+
   function handleAiInsertText(text: string) {
-    insertCommand = { type: '__raw:' + text, timestamp: Date.now() };
+    workspace.sendInsert('__raw:' + text);
   }
 
   function handleAiReplaceSelection(text: string) {
-    insertCommand = { type: '__raw:' + text, timestamp: Date.now() };
+    workspace.sendInsert('__raw:' + text);
+  }
+
+  function handleTocNavigate(line: number) {
+    workspace.sendInsert('__goto:' + line);
+  }
+
+  function handleEmojiSelect(emoji: string) {
+    workspace.sendInsert('__raw:' + emoji);
+    modal.close();
+  }
+
+  function handleSnippetInsert(snippet: string) {
+    workspace.sendInsert('__raw:' + snippet);
+    modal.close();
+  }
+
+  // --- Diagram editor ---
+  function openDiagramEditor() {
+    const sel = workspace.selectedText.trim();
+    if (sel) {
+      const fenceMatch = sel.match(/^```(\w[\w-]*)\s*\n([\s\S]*?)```\s*$/);
+      diagramEditorCode = fenceMatch ? fenceMatch[2].trim() : sel;
+    } else {
+      diagramEditorCode = 'flowchart TD\n    A[Start] --> B[End]';
+    }
+    modal.open('diagramEditor');
+  }
+
+  function handleDiagramSave(code: string, language: string) {
+    workspace.sendInsert('__raw:\n```' + language + '\n' + code + '\n```\n');
+    modal.close();
+  }
+
+  // --- Recent files ---
+  async function handleRecentFileSelect(path: string) {
+    modal.close();
+    await workspace.selectFile(path);
+  }
+
+  async function handleRecentFolderSelect(path: string) {
+    modal.close();
+    await workspace.openRecentFolder(path);
   }
 
   // --- Command palette ---
   function handleCommandExecute(commandId: string) {
     switch (commandId) {
-      case 'file.openFolder': handleOpenFolder(); break;
-      case 'file.save': handleSave(); break;
-      case 'file.closeTab': if (currentFile) handleCloseTab(currentFile); break;
+      case 'file.openFolder': workspace.openFolder(); break;
+      case 'file.save': workspace.save(); break;
+      case 'file.closeTab': if (workspace.currentFile) workspace.closeTab(workspace.currentFile); break;
       case 'edit.bold': handleToolbarInsert('bold'); break;
       case 'edit.italic': handleToolbarInsert('italic'); break;
       case 'edit.link': handleToolbarInsert('link'); break;
       case 'edit.image': handleToolbarInsert('image'); break;
       case 'edit.codeblock': handleToolbarInsert('codeblock'); break;
-      case 'edit.table': tableEditorOpen = true; break;
+      case 'edit.table': modal.open('tableEditor'); break;
       case 'edit.hr': handleToolbarInsert('hr'); break;
-      case 'view.sidebar': sidebarVisible = !sidebarVisible; break;
-      case 'view.zen': zenMode = !zenMode; break;
-      case 'view.theme': themePickerOpen = true; break;
-      case 'view.focusMode': focusModeEnabled = !focusModeEnabled; break;
-      case 'search.files': sidebarMode = 'search'; break;
-      case 'tools.diff': if (currentFile && currentFolder) diffViewOpen = true; break;
-      case 'tools.settings': settingsOpen = true; break;
-      case 'tools.emoji': emojiPickerOpen = true; break;
-      case 'tools.snippets': snippetMenuOpen = true; break;
-      case 'tools.presentation': if (content) presentationOpen = true; break;
-      case 'tools.customCss': customCssOpen = true; break;
-      case 'tools.themes': themePickerOpen = true; break;
-      case 'tools.plugins': pluginManagerOpen = true; break;
+      case 'view.sidebar': layout.toggleSidebar(); break;
+      case 'view.zen': layout.toggleZen(); break;
+      case 'view.theme': modal.open('themePicker'); break;
+      case 'view.focusMode': layout.focusModeEnabled = !layout.focusModeEnabled; break;
+      case 'search.files': layout.setSidebarMode('search'); break;
+      case 'tools.diff': if (workspace.currentFile && workspace.currentFolder) modal.open('diffView'); break;
+      case 'tools.settings': modal.open('settings'); break;
+      case 'tools.emoji': modal.open('emojiPicker'); break;
+      case 'tools.snippets': modal.open('snippetMenu'); break;
+      case 'tools.presentation': if (workspace.content) modal.open('presentation'); break;
+      case 'tools.customCss': modal.open('customCss'); break;
+      case 'tools.themes': modal.open('themePicker'); break;
+      case 'tools.plugins': modal.open('pluginManager'); break;
       case 'tools.mermaid': openDiagramEditor(); break;
-      case 'tools.ai': sidebarMode = sidebarMode === 'ai' ? 'files' : 'ai'; break;
-      case 'navigate.backlinks': sidebarMode = 'backlinks'; break;
-      case 'navigate.graphView': if (currentFolder) graphViewOpen = true; break;
+      case 'tools.ai': layout.toggleSidebarMode('ai'); break;
+      case 'navigate.backlinks': layout.setSidebarMode('backlinks'); break;
+      case 'navigate.graphView': if (workspace.currentFolder) modal.open('graphView'); break;
       case 'view.minimap': settingsManager.update({ minimapEnabled: !settingsManager.settings.minimapEnabled }); break;
       case 'view.inlineImages': settingsManager.update({ inlineImages: !settingsManager.settings.inlineImages }); break;
-      case 'view.mindMap': if (content) mindMapOpen = true; break;
-      case 'file.newFromTemplate': templateModalOpen = true; break;
-      case 'file.saveAsTemplate': if (content) { templateManager.saveCustom('Untitled', content); toastManager.success('Saved as template'); } break;
-      case 'tools.imageGallery': if (currentFolder) imageGalleryOpen = true; break;
-    }
-  }
-
-  // --- File watcher ---
-  async function handleFileChanges(changes: FileChangeEvent[]) {
-    let needsTreeRefresh = false;
-
-    for (const change of changes) {
-      if (change.change_type === 'created' || change.change_type === 'deleted') {
-        needsTreeRefresh = true;
-      }
-
-      // Reload content if the currently open file was modified externally
-      if (change.change_type === 'modified' && change.path === currentFile) {
-        try {
-          const newContent = await invoke<string>('read_file', { path: change.path });
-          const file = openFiles.find(f => f.path === change.path);
-          if (file && file.content === file.originalContent) {
-            // Only auto-reload if user hasn't made unsaved changes
-            content = newContent;
-            file.content = newContent;
-            file.originalContent = newContent;
-            toastManager.info('File reloaded (external change)');
-          }
-        } catch { /* ignore */ }
-      }
-    }
-
-    if (needsTreeRefresh && currentFolder) {
-      try {
-        fileTree = await invoke<FileEntry[]>('read_directory', { path: currentFolder });
-      } catch { /* ignore */ }
+      case 'view.mindMap': if (workspace.content) modal.open('mindMap'); break;
+      case 'file.newFromTemplate': modal.open('templateModal'); break;
+      case 'file.saveAsTemplate': if (workspace.content) { templateManager.saveCustom('Untitled', workspace.content); toastManager.success('Saved as template'); } break;
+      case 'tools.imageGallery': if (workspace.currentFolder) modal.open('imageGallery'); break;
     }
   }
 
@@ -369,300 +202,33 @@
 
     const file = e.dataTransfer.files[0];
     const path = (file as any).path as string | undefined;
-
     if (!path) return;
 
-    // Check if it's a directory or a .md file
     if (path.toLowerCase().endsWith('.md')) {
-      await handleFileSelect(path);
+      await workspace.selectFile(path);
     } else {
-      // Try to open as folder
-      try {
-        await stopWatching().catch(() => {});
-        currentFolder = path;
-        currentFile = null;
-        content = '';
-        openFiles = [];
-        fileTree = await invoke<FileEntry[]>('read_directory', { path });
-        startWatching(path, handleFileChanges).catch(() => {});
-        toastManager.success('Folder opened');
-      } catch {
-        toastManager.error('Could not open as folder');
-      }
-    }
-  }
-
-  // --- Splitter drag logic ---
-  function onSplitterPointerDown(which: 'tree' | 'editor', e: PointerEvent) {
-    draggingSplitter = which;
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    e.preventDefault();
-  }
-
-  function onSplitterPointerMove(e: PointerEvent) {
-    if (!draggingSplitter || !containerEl) return;
-
-    const rect = containerEl.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const totalWidth = rect.width;
-
-    if (draggingSplitter === 'tree') {
-      let newTreeWidth = x;
-      const remaining = totalWidth - newTreeWidth - SPLITTER_WIDTH * 2;
-      const editorWidth = remaining * editorFraction;
-      const previewWidth = remaining * (1 - editorFraction);
-
-      if (newTreeWidth < MIN_TREE) newTreeWidth = MIN_TREE;
-      if (editorWidth < MIN_EDITOR || previewWidth < MIN_PREVIEW) {
-        const maxTree = totalWidth - SPLITTER_WIDTH * 2 - MIN_EDITOR - MIN_PREVIEW;
-        if (newTreeWidth > maxTree) newTreeWidth = maxTree;
-      }
-      fileTreeWidth = newTreeWidth;
-    } else if (draggingSplitter === 'editor') {
-      const editorStart = fileTreeWidth + SPLITTER_WIDTH;
-      const remaining = totalWidth - editorStart - SPLITTER_WIDTH;
-      const editorWidth = x - editorStart;
-      let newFraction = editorWidth / remaining;
-
-      if (editorWidth < MIN_EDITOR) {
-        newFraction = MIN_EDITOR / remaining;
-      }
-      const previewWidth = remaining * (1 - newFraction);
-      if (previewWidth < MIN_PREVIEW) {
-        newFraction = 1 - MIN_PREVIEW / remaining;
-      }
-
-      newFraction = Math.max(0.1, Math.min(0.9, newFraction));
-      editorFraction = newFraction;
-    }
-  }
-
-  function onSplitterPointerUp() {
-    draggingSplitter = null;
-  }
-
-  // --- Sync scroll handlers ---
-  function handleEditorScroll(fraction: number) {
-    if (scrollSource === 'preview') return;
-    scrollSource = 'editor';
-    scrollFraction = fraction;
-    queueMicrotask(() => { scrollSource = null; });
-  }
-
-  function handlePreviewScroll(fraction: number) {
-    if (scrollSource === 'editor') return;
-    scrollSource = 'preview';
-    scrollFraction = fraction;
-    queueMicrotask(() => { scrollSource = null; });
-  }
-
-  // --- Markdown toolbar ---
-  function handleToolbarInsert(type: string) {
-    insertCommand = { type, timestamp: Date.now() };
-  }
-
-  // --- File operations ---
-  async function handleRenameFile(oldPath: string, newPath: string) {
-    try {
-      await invoke('rename_file', { oldPath, newPath });
-      // Update open tabs if renamed file is open
-      const idx = openFiles.findIndex(f => f.path === oldPath);
-      if (idx !== -1) {
-        openFiles[idx].path = newPath;
-        openFiles[idx].name = newPath.split(/[\\/]/).pop() ?? newPath;
-      }
-      if (currentFile === oldPath) currentFile = newPath;
-      if (currentFolder) {
-        fileTree = await invoke<FileEntry[]>('read_directory', { path: currentFolder });
-      }
-      toastManager.success('File renamed');
-    } catch (err) {
-      toastManager.error('Failed to rename file');
-    }
-  }
-
-  async function handleDeleteFile(path: string) {
-    try {
-      await invoke('delete_file', { path });
-      // Close tab if open
-      handleCloseTab(path);
-      if (currentFolder) {
-        fileTree = await invoke<FileEntry[]>('read_directory', { path: currentFolder });
-      }
-      toastManager.success('File deleted');
-    } catch (err) {
-      toastManager.error('Failed to delete file');
-    }
-  }
-
-  async function handleCreateFile(folderPath: string) {
-    const newPath = folderPath + '\\new-file.md';
-    try {
-      await invoke('create_file', { path: newPath });
-      if (currentFolder) {
-        fileTree = await invoke<FileEntry[]>('read_directory', { path: currentFolder });
-      }
-      await handleFileSelect(newPath);
-      toastManager.success('File created');
-    } catch (err) {
-      toastManager.error('Failed to create file');
-    }
-  }
-
-  // --- Image paste ---
-  async function handleImagePaste(file: File) {
-    if (!currentFolder || !currentFile) return;
-    try {
-      const arrayBuf = await file.arrayBuffer();
-      const data = Array.from(new Uint8Array(arrayBuf));
-      const ext = file.type.split('/')[1] || 'png';
-      const filename = `image-${Date.now()}.${ext}`;
-      const savedPath: string = await invoke('save_image', {
-        folder: currentFolder,
-        filename,
-        data,
-      });
-      // Insert markdown image link relative to assets folder
-      insertCommand = { type: '__raw:![image](assets/' + filename + ')', timestamp: Date.now() };
-    } catch (err) {
-      toastManager.error('Failed to paste image');
-    }
-  }
-
-  // --- Diagram editor ---
-  function openDiagramEditor() {
-    const sel = selectedText.trim();
-    if (sel) {
-      // Strip ```mermaid (or other) fences if present
-      const fenceMatch = sel.match(/^```(\w[\w-]*)\s*\n([\s\S]*?)```\s*$/);
-      diagramEditorCode = fenceMatch ? fenceMatch[2].trim() : sel;
-    } else {
-      diagramEditorCode = 'flowchart TD\n    A[Start] --> B[End]';
-    }
-    diagramEditorOpen = true;
-  }
-
-  function handleDiagramSave(code: string, language: string) {
-    insertCommand = { type: '__raw:\n```' + language + '\n' + code + '\n```\n', timestamp: Date.now() };
-    diagramEditorOpen = false;
-  }
-
-  // --- ToC navigate ---
-  function handleTocNavigate(line: number) {
-    // Navigate to line in editor - use insertCommand with special type
-    insertCommand = { type: '__goto:' + line, timestamp: Date.now() };
-  }
-
-  // --- Emoji / Snippet insert ---
-  function handleEmojiSelect(emoji: string) {
-    insertCommand = { type: '__raw:' + emoji, timestamp: Date.now() };
-    emojiPickerOpen = false;
-  }
-
-  function handleSnippetInsert(snippet: string) {
-    insertCommand = { type: '__raw:' + snippet, timestamp: Date.now() };
-    snippetMenuOpen = false;
-  }
-
-  // --- Recent files handlers ---
-  async function handleRecentFileSelect(path: string) {
-    recentFilesOpen = false;
-    await handleFileSelect(path);
-  }
-
-  async function handleRecentFolderSelect(path: string) {
-    recentFilesOpen = false;
-    await stopWatching().catch(() => {});
-    currentFolder = path;
-    currentFile = null;
-    content = '';
-    openFiles = [];
-    sidebarMode = 'files';
-    try {
-      fileTree = await invoke<FileEntry[]>('read_directory', { path });
-      startWatching(path, handleFileChanges).catch(() => {});
-    } catch {
-      toastManager.error('Failed to read directory');
-      fileTree = [];
+      await workspace.openRecentFolder(path);
     }
   }
 
   // --- Keyboard shortcuts ---
   function handleKeydown(e: KeyboardEvent) {
-    // F11 — zen mode
-    if (e.key === 'F11') {
-      e.preventDefault();
-      zenMode = !zenMode;
-    }
-    // Escape — exit zen mode
-    if (e.key === 'Escape' && zenMode) {
-      zenMode = false;
-    }
-    // Ctrl+O — open folder
-    if ((e.ctrlKey || e.metaKey) && e.key === 'o') {
-      e.preventDefault();
-      handleOpenFolder();
-    }
-    // Ctrl+, — toggle theme
-    if ((e.ctrlKey || e.metaKey) && e.key === ',') {
-      e.preventDefault();
-      handleToggleTheme();
-    }
-    // Ctrl+Shift+F — focus search
-    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'F') {
-      e.preventDefault();
-      sidebarMode = 'search';
-    }
-    // Ctrl+B — sidebar toggle
-    if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
-      e.preventDefault();
-      sidebarVisible = !sidebarVisible;
-    }
-    // Ctrl+D — diff view
-    if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
-      e.preventDefault();
-      if (currentFile && currentFolder) diffViewOpen = true;
-    }
-    // Ctrl+Shift+P — command palette
-    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'P') {
-      e.preventDefault();
-      commandPaletteOpen = !commandPaletteOpen;
-    }
-    // Ctrl+Shift+M — presentation mode
-    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'M') {
-      e.preventDefault();
-      if (content) presentationOpen = true;
-    }
-    // Ctrl+Shift+A — AI helper
-    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'A') {
-      e.preventDefault();
-      sidebarMode = sidebarMode === 'ai' ? 'files' : 'ai';
-    }
-    // Ctrl+Shift+B — Backlinks
-    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'B') {
-      e.preventDefault();
-      sidebarMode = sidebarMode === 'backlinks' ? 'files' : 'backlinks';
-    }
-    // Ctrl+Shift+G — Graph View
-    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'G') {
-      e.preventDefault();
-      if (currentFolder) graphViewOpen = true;
-    }
-    // Ctrl+Shift+N — New from Template
-    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'N') {
-      e.preventDefault();
-      templateModalOpen = true;
-    }
-    // Ctrl+Shift+O — Mind Map
-    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'O') {
-      e.preventDefault();
-      if (content) mindMapOpen = true;
-    }
-    // Ctrl+Shift+I — Image Gallery
-    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'I') {
-      e.preventDefault();
-      if (currentFolder) imageGalleryOpen = true;
-    }
+    const ctrl = e.ctrlKey || e.metaKey;
+    if (e.key === 'F11') { e.preventDefault(); layout.toggleZen(); }
+    if (e.key === 'Escape' && layout.zenMode) { layout.zenMode = false; }
+    if (ctrl && e.key === 'o') { e.preventDefault(); workspace.openFolder(); }
+    if (ctrl && e.key === ',') { e.preventDefault(); handleToggleTheme(); }
+    if (ctrl && e.shiftKey && e.key === 'F') { e.preventDefault(); layout.setSidebarMode('search'); }
+    if (ctrl && e.key === 'b') { e.preventDefault(); layout.toggleSidebar(); }
+    if (ctrl && e.key === 'd') { e.preventDefault(); if (workspace.currentFile && workspace.currentFolder) modal.open('diffView'); }
+    if (ctrl && e.shiftKey && e.key === 'P') { e.preventDefault(); modal.toggle('commandPalette'); }
+    if (ctrl && e.shiftKey && e.key === 'M') { e.preventDefault(); if (workspace.content) modal.open('presentation'); }
+    if (ctrl && e.shiftKey && e.key === 'A') { e.preventDefault(); layout.toggleSidebarMode('ai'); }
+    if (ctrl && e.shiftKey && e.key === 'B') { e.preventDefault(); layout.toggleSidebarMode('backlinks'); }
+    if (ctrl && e.shiftKey && e.key === 'G') { e.preventDefault(); if (workspace.currentFolder) modal.open('graphView'); }
+    if (ctrl && e.shiftKey && e.key === 'N') { e.preventDefault(); modal.open('templateModal'); }
+    if (ctrl && e.shiftKey && e.key === 'O') { e.preventDefault(); if (workspace.content) modal.open('mindMap'); }
+    if (ctrl && e.shiftKey && e.key === 'I') { e.preventDefault(); if (workspace.currentFolder) modal.open('imageGallery'); }
   }
 </script>
 
@@ -671,195 +237,195 @@
 <div
   class="app-layout"
   bind:this={containerEl}
-  onpointermove={onSplitterPointerMove}
-  onpointerup={onSplitterPointerUp}
+  onpointermove={(e) => layout.onDragMove(e, containerEl)}
+  onpointerup={() => layout.endDrag()}
   ondragover={handleDragOver}
   ondrop={handleDrop}
   role="application"
 >
-  {#if !zenMode}
+  {#if !layout.zenMode}
   <div class="toolbar-area">
     <Toolbar
-      onOpenFolder={handleOpenFolder}
-      onSave={handleSave}
-      currentFolder={currentFolder}
-      currentFile={currentFile}
-      {content}
+      onOpenFolder={() => workspace.openFolder()}
+      onSave={() => workspace.save()}
+      currentFolder={workspace.currentFolder}
+      currentFile={workspace.currentFile}
+      content={workspace.content}
       {theme}
     />
     <div class="toolbar-extra">
-      <button class="extra-btn" onclick={() => sidebarVisible = !sidebarVisible} title="Toggle Sidebar (Ctrl+B)">
+      <button class="extra-btn" onclick={() => layout.toggleSidebar()} title="Toggle Sidebar (Ctrl+B)">
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="2" width="14" height="12" rx="2" /><line x1="6" y1="2" x2="6" y2="14" /></svg>
       </button>
       <div class="extra-btn-group">
-        <button class="extra-btn" onclick={() => recentFilesOpen = !recentFilesOpen} title="Recent Files">
+        <button class="extra-btn" onclick={() => modal.toggle('recentFiles')} title="Recent Files">
           <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.5" /><polyline points="8,4 8,8 11,10" /></svg>
         </button>
-        {#if recentFilesOpen}
+        {#if modal.isOpen('recentFiles')}
           <RecentFiles
             onFileSelect={handleRecentFileSelect}
             onFolderSelect={handleRecentFolderSelect}
-            onClose={() => recentFilesOpen = false}
+            onClose={() => modal.close()}
           />
         {/if}
       </div>
       <div class="extra-btn-group">
-        <button class="extra-btn" onclick={() => emojiPickerOpen = !emojiPickerOpen} title="Emoji Picker">
+        <button class="extra-btn" onclick={() => modal.toggle('emojiPicker')} title="Emoji Picker">
           😀
         </button>
-        {#if emojiPickerOpen}
-          <EmojiPicker onSelect={handleEmojiSelect} onClose={() => emojiPickerOpen = false} />
+        {#if modal.isOpen('emojiPicker')}
+          <EmojiPicker onSelect={handleEmojiSelect} onClose={() => modal.close()} />
         {/if}
       </div>
       <div class="extra-btn-group">
-        <button class="extra-btn" onclick={() => snippetMenuOpen = !snippetMenuOpen} title="Snippets">
+        <button class="extra-btn" onclick={() => modal.toggle('snippetMenu')} title="Snippets">
           <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4,4 1,8 4,12" /><polyline points="12,4 15,8 12,12" /><line x1="10" y1="3" x2="6" y2="13" /></svg>
         </button>
-        {#if snippetMenuOpen}
-          <SnippetMenu onInsert={handleSnippetInsert} onClose={() => snippetMenuOpen = false} />
+        {#if modal.isOpen('snippetMenu')}
+          <SnippetMenu onInsert={handleSnippetInsert} onClose={() => modal.close()} />
         {/if}
       </div>
-      <button class="extra-btn" onclick={() => { if (currentFile && currentFolder) diffViewOpen = true; }} disabled={!currentFile} title="Git Diff (Ctrl+D)">
+      <button class="extra-btn" onclick={() => { if (workspace.currentFile && workspace.currentFolder) modal.open('diffView'); }} disabled={!workspace.currentFile} title="Git Diff (Ctrl+D)">
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="1" x2="8" y2="15" /><line x1="3" y1="5" x2="6" y2="5" /><line x1="3" y1="8" x2="6" y2="8" /><line x1="10" y1="8" x2="13" y2="8" /><line x1="11.5" y1="6" x2="11.5" y2="10" /><line x1="3" y1="11" x2="6" y2="11" /></svg>
       </button>
-      <button class="extra-btn" class:active-toggle={focusModeEnabled} onclick={() => focusModeEnabled = !focusModeEnabled} title="Focus Mode">
+      <button class="extra-btn" class:active-toggle={layout.focusModeEnabled} onclick={() => layout.focusModeEnabled = !layout.focusModeEnabled} title="Focus Mode">
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="7" /><circle cx="8" cy="8" r="3" /></svg>
       </button>
-      <button class="extra-btn" class:active-toggle={spellCheckEnabled} onclick={() => spellCheckEnabled = !spellCheckEnabled} title="Spell Check">
+      <button class="extra-btn" class:active-toggle={layout.spellCheckEnabled} onclick={() => layout.spellCheckEnabled = !layout.spellCheckEnabled} title="Spell Check">
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13l4-10h1l4 10" /><line x1="3.5" y1="9" x2="9.5" y2="9" /><polyline points="11 10 12.5 12 15 8" /></svg>
       </button>
-      <button class="extra-btn" onclick={() => tableEditorOpen = true} disabled={!currentFile} title="Insert Table">
+      <button class="extra-btn" onclick={() => modal.open('tableEditor')} disabled={!workspace.currentFile} title="Insert Table">
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="2" width="14" height="12" rx="1" /><line x1="1" y1="6" x2="15" y2="6" /><line x1="1" y1="10" x2="15" y2="10" /><line x1="6" y1="2" x2="6" y2="14" /><line x1="11" y1="2" x2="11" y2="14" /></svg>
       </button>
-      <button class="extra-btn" onclick={() => openDiagramEditor()} disabled={!currentFile} title="Diagram Editor">
+      <button class="extra-btn" onclick={() => openDiagramEditor()} disabled={!workspace.currentFile} title="Diagram Editor">
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12 L4 4 L8 10 L12 4 L15 12" /><circle cx="1" cy="12" r="1" fill="currentColor" /><circle cx="15" cy="12" r="1" fill="currentColor" /></svg>
       </button>
-      <button class="extra-btn" onclick={() => { if (content) presentationOpen = true; }} disabled={!currentFile} title="Presentation Mode (Ctrl+Shift+M)">
+      <button class="extra-btn" onclick={() => { if (workspace.content) modal.open('presentation'); }} disabled={!workspace.currentFile} title="Presentation Mode (Ctrl+Shift+M)">
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="2" width="14" height="10" rx="1" /><line x1="8" y1="12" x2="8" y2="15" /><line x1="5" y1="15" x2="11" y2="15" /><polygon points="6,5 6,9 10,7" /></svg>
       </button>
-      <button class="extra-btn" onclick={() => themePickerOpen = true} title="Themes">
+      <button class="extra-btn" onclick={() => modal.open('themePicker')} title="Themes">
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6" /><path d="M8 2a6 6 0 000 12z" fill="currentColor" opacity="0.3" /></svg>
       </button>
-      <button class="extra-btn" onclick={() => customCssOpen = true} title="Custom Preview CSS">
+      <button class="extra-btn" onclick={() => modal.open('customCss')} title="Custom Preview CSS">
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2l-3 6 3 6" /><path d="M12 2l3 6-3 6" /><line x1="10" y1="1" x2="6" y2="15" /></svg>
       </button>
-      <button class="extra-btn" onclick={() => pluginManagerOpen = true} title="Plugins">
+      <button class="extra-btn" onclick={() => modal.open('pluginManager')} title="Plugins">
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="1" width="10" height="6" rx="1" /><line x1="6" y1="7" x2="6" y2="10" /><line x1="10" y1="7" x2="10" y2="10" /><rect x="1" y="10" width="14" height="5" rx="1" /></svg>
       </button>
-      <button class="extra-btn" onclick={() => templateModalOpen = true} title="New from Template (Ctrl+Shift+N)">
+      <button class="extra-btn" onclick={() => modal.open('templateModal')} title="New from Template (Ctrl+Shift+N)">
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="1" width="12" height="14" rx="1" /><line x1="5" y1="5" x2="11" y2="5" /><line x1="5" y1="8" x2="9" y2="8" /><line x1="5" y1="11" x2="10" y2="11" /></svg>
       </button>
-      <button class="extra-btn" onclick={() => { if (currentFolder) imageGalleryOpen = true; }} disabled={!currentFolder} title="Image Gallery (Ctrl+Shift+I)">
+      <button class="extra-btn" onclick={() => { if (workspace.currentFolder) modal.open('imageGallery'); }} disabled={!workspace.currentFolder} title="Image Gallery (Ctrl+Shift+I)">
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="2" width="14" height="12" rx="1" /><circle cx="5" cy="6" r="1.5" /><polyline points="14,14 10,8 7,12 5,10 2,14" /></svg>
       </button>
-      <button class="extra-btn" onclick={() => { if (content) mindMapOpen = true; }} disabled={!currentFile} title="Mind Map (Ctrl+Shift+O)">
+      <button class="extra-btn" onclick={() => { if (workspace.content) modal.open('mindMap'); }} disabled={!workspace.currentFile} title="Mind Map (Ctrl+Shift+O)">
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="4" cy="8" r="2" /><circle cx="12" cy="4" r="1.5" /><circle cx="12" cy="8" r="1.5" /><circle cx="12" cy="12" r="1.5" /><line x1="6" y1="7" x2="10.5" y2="4" /><line x1="6" y1="8" x2="10.5" y2="8" /><line x1="6" y1="9" x2="10.5" y2="12" /></svg>
       </button>
-      <button class="extra-btn" onclick={() => { if (currentFolder) graphViewOpen = true; }} disabled={!currentFolder} title="Graph View (Ctrl+Shift+G)">
+      <button class="extra-btn" onclick={() => { if (workspace.currentFolder) modal.open('graphView'); }} disabled={!workspace.currentFolder} title="Graph View (Ctrl+Shift+G)">
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="4" cy="4" r="2" /><circle cx="12" cy="4" r="2" /><circle cx="8" cy="12" r="2" /><line x1="6" y1="4" x2="10" y2="4" /><line x1="5" y1="5.5" x2="7" y2="10.5" /><line x1="11" y1="5.5" x2="9" y2="10.5" /></svg>
       </button>
       <button class="extra-btn" class:active-toggle={settingsManager.settings.minimapEnabled} onclick={() => settingsManager.update({ minimapEnabled: !settingsManager.settings.minimapEnabled })} title="Toggle Minimap">
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="1" width="14" height="14" rx="1" /><rect x="10" y="2" width="4" height="12" rx="0.5" opacity="0.4" fill="currentColor" /><line x1="3" y1="4" x2="8" y2="4" /><line x1="3" y1="7" x2="7" y2="7" /><line x1="3" y1="10" x2="8" y2="10" /></svg>
       </button>
-      <button class="extra-btn" onclick={() => commandPaletteOpen = true} title="Command Palette (Ctrl+Shift+P)">
+      <button class="extra-btn" onclick={() => modal.open('commandPalette')} title="Command Palette (Ctrl+Shift+P)">
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4l-3 4 3 4" /><path d="M12 4l3 4-3 4" /></svg>
       </button>
-      <button class="extra-btn" onclick={() => settingsOpen = true} title="Settings">
+      <button class="extra-btn" onclick={() => modal.open('settings')} title="Settings">
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.5" /><path d="M8 1.5l.7 2.1a4.5 4.5 0 011.7 1l2.1-.7 1 1.7-1.4 1.5a4.5 4.5 0 010 1.8l1.4 1.5-1 1.7-2.1-.7a4.5 4.5 0 01-1.7 1L8 14.5l-1.7 0-.7-2.1a4.5 4.5 0 01-1.7-1l-2.1.7-1-1.7 1.4-1.5a4.5 4.5 0 010-1.8L.8 5.6l1-1.7 2.1.7a4.5 4.5 0 011.7-1L6.3 1.5z" /></svg>
       </button>
-      <button class="extra-btn" onclick={() => zenMode = true} title="Zen Mode (F11)">
+      <button class="extra-btn" onclick={() => layout.zenMode = true} title="Zen Mode (F11)">
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1,5 1,1 5,1" /><polyline points="11,1 15,1 15,5" /><polyline points="15,11 15,15 11,15" /><polyline points="5,15 1,15 1,11" /></svg>
       </button>
     </div>
   </div>
   {/if}
 
-  {#if openFiles.length > 0}
+  {#if workspace.openFiles.length > 0}
     <div class="tabs-area">
       <Tabs
-        openFiles={openFileTabs}
-        activeFile={currentFile}
-        onSelectTab={handleSelectTab}
-        onCloseTab={handleCloseTab}
+        openFiles={workspace.openFileTabs}
+        activeFile={workspace.currentFile}
+        onSelectTab={(path) => workspace.selectTab(path)}
+        onCloseTab={(path) => workspace.closeTab(path)}
       />
     </div>
   {/if}
 
-  <div class="main-area" style="grid-template-columns: {gridColumns}">
-    <div class="sidebar-panel" class:hidden={!sidebarVisible || zenMode}>
+  <div class="main-area" style="grid-template-columns: {layout.gridColumns}">
+    <div class="sidebar-panel" class:hidden={!layout.sidebarVisible || layout.zenMode}>
       <div class="sidebar-tabs">
         <button
           class="sidebar-tab"
-          class:active={sidebarMode === 'files'}
-          onclick={() => sidebarMode = 'files'}
+          class:active={layout.sidebarMode === 'files'}
+          onclick={() => layout.setSidebarMode('files')}
           title="Files"
         ><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 3a1 1 0 011-1h4l2 2h5a1 1 0 011 1v7a1 1 0 01-1 1H2a1 1 0 01-1-1z" /></svg></button>
         <button
           class="sidebar-tab"
-          class:active={sidebarMode === 'search'}
-          onclick={() => sidebarMode = 'search'}
+          class:active={layout.sidebarMode === 'search'}
+          onclick={() => layout.setSidebarMode('search')}
           title="Search"
         ><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.5" cy="6.5" r="4.5" /><line x1="10" y1="10" x2="14.5" y2="14.5" /></svg></button>
         <button
           class="sidebar-tab"
-          class:active={sidebarMode === 'git'}
-          onclick={() => sidebarMode = 'git'}
+          class:active={layout.sidebarMode === 'git'}
+          onclick={() => layout.setSidebarMode('git')}
           title="Git"
         ><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="4" cy="4" r="2" /><circle cx="4" cy="13" r="2" /><circle cx="12" cy="7" r="2" /><line x1="4" y1="6" x2="4" y2="11" /><path d="M4 6c0 2 2 3 4 3h2" /></svg></button>
         <button
           class="sidebar-tab"
-          class:active={sidebarMode === 'toc'}
-          onclick={() => sidebarMode = 'toc'}
+          class:active={layout.sidebarMode === 'toc'}
+          onclick={() => layout.setSidebarMode('toc')}
           title="Table of Contents"
         ><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="3" x2="14" y2="3" /><line x1="5" y1="6.5" x2="14" y2="6.5" /><line x1="5" y1="10" x2="14" y2="10" /><line x1="3" y1="13.5" x2="14" y2="13.5" /></svg></button>
         <button
           class="sidebar-tab"
-          class:active={sidebarMode === 'ai'}
-          onclick={() => sidebarMode = 'ai'}
+          class:active={layout.sidebarMode === 'ai'}
+          onclick={() => layout.setSidebarMode('ai')}
           title="AI Helper (Ctrl+Shift+A)"
         ><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1v2M4.5 2.5l1 1.7M11.5 2.5l-1 1.7" /><circle cx="8" cy="9" r="5" /><circle cx="6.5" cy="8" r="1" fill="currentColor" /><circle cx="9.5" cy="8" r="1" fill="currentColor" /><path d="M6 11c.5.6 1.2 1 2 1s1.5-.4 2-1" /></svg></button>
         <button
           class="sidebar-tab"
-          class:active={sidebarMode === 'backlinks'}
-          onclick={() => sidebarMode = 'backlinks'}
+          class:active={layout.sidebarMode === 'backlinks'}
+          onclick={() => layout.setSidebarMode('backlinks')}
           title="Backlinks (Ctrl+Shift+B)"
         ><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2H6l-1 4h6l-1 4H6" /><line x1="5" y1="10" x2="4" y2="14" /><line x1="10" y1="10" x2="11" y2="14" /></svg></button>
       </div>
       <div class="sidebar-content">
-        {#if sidebarMode === 'files'}
+        {#if layout.sidebarMode === 'files'}
           <FileTree
-            fileTree={fileTree}
-            currentFile={currentFile}
-            onFileSelect={handleFileSelect}
-            onRenameFile={handleRenameFile}
-            onDeleteFile={handleDeleteFile}
-            onCreateFile={handleCreateFile}
+            fileTree={workspace.fileTree}
+            currentFile={workspace.currentFile}
+            onFileSelect={(path) => workspace.selectFile(path)}
+            onRenameFile={(o, n) => workspace.renameFile(o, n)}
+            onDeleteFile={(p) => workspace.deleteFile(p)}
+            onCreateFile={(p) => workspace.createFile(p)}
           />
-        {:else if sidebarMode === 'search'}
+        {:else if layout.sidebarMode === 'search'}
           <SearchPanel
-            currentFolder={currentFolder}
-            onFileSelect={handleFileSelect}
+            currentFolder={workspace.currentFolder}
+            onFileSelect={(path) => workspace.selectFile(path)}
           />
-        {:else if sidebarMode === 'git'}
-          <GitPanel currentFolder={currentFolder} />
-        {:else if sidebarMode === 'toc'}
+        {:else if layout.sidebarMode === 'git'}
+          <GitPanel currentFolder={workspace.currentFolder} />
+        {:else if layout.sidebarMode === 'toc'}
           <TocPanel
-            {content}
+            content={workspace.content}
             onNavigate={handleTocNavigate}
           />
-        {:else if sidebarMode === 'ai'}
+        {:else if layout.sidebarMode === 'ai'}
           <AIPanel
-            {content}
-            {selectedText}
+            content={workspace.content}
+            selectedText={workspace.selectedText}
             onInsertText={handleAiInsertText}
             onReplaceSelection={handleAiReplaceSelection}
-            onClose={() => sidebarMode = 'files'}
+            onClose={() => layout.setSidebarMode('files')}
           />
-        {:else if sidebarMode === 'backlinks'}
+        {:else if layout.sidebarMode === 'backlinks'}
           <BacklinksPanel
-            {currentFile}
-            {currentFolder}
-            onFileSelect={handleFileSelect}
+            currentFile={workspace.currentFile}
+            currentFolder={workspace.currentFolder}
+            onFileSelect={(path) => workspace.selectFile(path)}
           />
         {/if}
       </div>
@@ -867,35 +433,35 @@
 
     <div
       class="splitter"
-      class:hidden={!sidebarVisible || zenMode}
-      class:active={draggingSplitter === 'tree'}
-      onpointerdown={(e) => onSplitterPointerDown('tree', e)}
+      class:hidden={!layout.sidebarVisible || layout.zenMode}
+      class:active={layout.draggingSplitter === 'tree'}
+      onpointerdown={(e) => layout.startDrag('tree', e)}
       role="separator"
       aria-orientation="vertical"
       tabindex="-1"
     ></div>
 
     <div class="editor-panel">
-      {#if currentFile}
-        {#if !zenMode}
-          <Breadcrumb {currentFile} {currentFolder} />
+      {#if workspace.currentFile}
+        {#if !layout.zenMode}
+          <Breadcrumb currentFile={workspace.currentFile} currentFolder={workspace.currentFolder} />
         {/if}
         <MarkdownToolbar onInsert={handleToolbarInsert} />
         <Editor
-          {content}
-          onContentChange={handleContentChange}
+          content={workspace.content}
+          onContentChange={(c) => workspace.updateContent(c)}
           {theme}
-          onSave={handleSave}
-          onScrollChange={handleEditorScroll}
-          scrollFraction={scrollSource === 'preview' ? scrollFraction : undefined}
-          {insertCommand}
-          onCommandProcessed={() => { insertCommand = null; }}
-          onImagePaste={handleImagePaste}
-          focusMode={focusModeEnabled}
-          spellCheck={spellCheckEnabled}
+          onSave={() => workspace.save()}
+          onScrollChange={(f) => layout.handleEditorScroll(f)}
+          scrollFraction={layout.scrollSource === 'preview' ? layout.scrollFraction : undefined}
+          insertCommand={workspace.insertCommand}
+          onCommandProcessed={() => workspace.clearInsert()}
+          onImagePaste={(f) => workspace.handleImagePaste(f)}
+          focusMode={layout.focusModeEnabled}
+          spellCheck={layout.spellCheckEnabled}
           minimapEnabled={settingsManager.settings.minimapEnabled}
           inlineImages={settingsManager.settings.inlineImages}
-          onSelectionChange={(text) => { selectedText = text; }}
+          onSelectionChange={(text) => { workspace.selectedText = text; }}
         />
       {:else}
         <div class="panel-placeholder">Select a file to edit</div>
@@ -904,24 +470,23 @@
 
     <div
       class="splitter"
-      class:active={draggingSplitter === 'editor'}
-      onpointerdown={(e) => onSplitterPointerDown('editor', e)}
+      class:active={layout.draggingSplitter === 'editor'}
+      onpointerdown={(e) => layout.startDrag('editor', e)}
       role="separator"
       aria-orientation="vertical"
       tabindex="-1"
     ></div>
 
     <div class="preview-panel">
-      {#if currentFile}
+      {#if workspace.currentFile}
         <Preview
-          {content}
+          content={workspace.content}
           {theme}
-          onScrollChange={handlePreviewScroll}
-          scrollFraction={scrollSource === 'editor' ? scrollFraction : undefined}
+          onScrollChange={(f) => layout.handlePreviewScroll(f)}
+          scrollFraction={layout.scrollSource === 'editor' ? layout.scrollFraction : undefined}
           onWikiLinkClick={async (target) => {
-            if (!currentFolder) return;
-            // Find the matching .md file
-            const files = fileTree.flatMap(function flatten(f: import('$lib/types').FileEntry): string[] {
+            if (!workspace.currentFolder) return;
+            const files = workspace.fileTree.flatMap(function flatten(f: import('$lib/types').FileEntry): string[] {
               if (f.is_directory && f.children) return f.children.flatMap(flatten);
               return [f.path];
             });
@@ -930,7 +495,7 @@
               const name = (f.split(/[\\/]/).pop() ?? '').replace(/\.md$/i, '').toLowerCase();
               return name === normalized || name === target.toLowerCase();
             });
-            if (match) await handleFileSelect(match);
+            if (match) await workspace.selectFile(match);
             else toastManager.info('File not found: ' + target);
           }}
         />
@@ -940,11 +505,11 @@
     </div>
   </div>
 
-  {#if !zenMode}
+  {#if !layout.zenMode}
   <div class="statusbar-area">
     <StatusBar
-      currentFile={currentFile}
-      {content}
+      currentFile={workspace.currentFile}
+      content={workspace.content}
       {theme}
       onToggleTheme={handleToggleTheme}
     />
@@ -952,112 +517,113 @@
   {/if}
 </div>
 
-{#if settingsOpen}
-  <SettingsPanel onClose={() => settingsOpen = false} {theme} />
+<!-- Modals: single active modal at a time -->
+{#if modal.isOpen('settings')}
+  <SettingsPanel onClose={() => modal.close()} {theme} />
 {/if}
 
-{#if diffViewOpen}
-  <DiffView {currentFile} {currentFolder} onClose={() => diffViewOpen = false} {theme} />
+{#if modal.isOpen('diffView')}
+  <DiffView currentFile={workspace.currentFile} currentFolder={workspace.currentFolder} onClose={() => modal.close()} {theme} />
 {/if}
 
-{#if diagramEditorOpen}
+{#if modal.isOpen('diagramEditor')}
   <DiagramEditor
     initialCode={diagramEditorCode}
     onSave={handleDiagramSave}
-    onClose={() => diagramEditorOpen = false}
+    onClose={() => modal.close()}
     {theme}
   />
 {/if}
 
-{#if commandPaletteOpen}
+{#if modal.isOpen('commandPalette')}
   <CommandPalette
     onExecute={handleCommandExecute}
-    onClose={() => commandPaletteOpen = false}
+    onClose={() => modal.close()}
   />
 {/if}
 
-{#if tableEditorOpen}
+{#if modal.isOpen('tableEditor')}
   <TableEditor
     onInsert={handleTableInsert}
-    onClose={() => tableEditorOpen = false}
+    onClose={() => modal.close()}
   />
 {/if}
 
-{#if presentationOpen}
+{#if modal.isOpen('presentation')}
   <PresentationMode
-    {content}
+    content={workspace.content}
     {theme}
-    onClose={() => presentationOpen = false}
+    onClose={() => modal.close()}
   />
 {/if}
 
-{#if customCssOpen}
+{#if modal.isOpen('customCss')}
   <CustomCssEditor
-    onClose={() => customCssOpen = false}
+    onClose={() => modal.close()}
     {theme}
   />
 {/if}
 
-{#if themePickerOpen}
+{#if modal.isOpen('themePicker')}
   <ThemePicker
     currentThemeId={currentThemeId}
-    onSelect={(id) => { handleThemeSelect(id); themePickerOpen = false; }}
-    onClose={() => themePickerOpen = false}
+    onSelect={(id) => { handleThemeSelect(id); modal.close(); }}
+    onClose={() => modal.close()}
   />
 {/if}
 
-{#if pluginManagerOpen}
+{#if modal.isOpen('pluginManager')}
   <PluginManager
-    onClose={() => pluginManagerOpen = false}
+    onClose={() => modal.close()}
     {theme}
   />
 {/if}
 
-{#if graphViewOpen}
+{#if modal.isOpen('graphView')}
   <GraphView
-    {currentFolder}
-    {currentFile}
+    currentFolder={workspace.currentFolder}
+    currentFile={workspace.currentFile}
     {theme}
-    onFileSelect={(path) => { handleFileSelect(path); graphViewOpen = false; }}
-    onClose={() => graphViewOpen = false}
+    onFileSelect={(path) => { workspace.selectFile(path); modal.close(); }}
+    onClose={() => modal.close()}
   />
 {/if}
 
-{#if mindMapOpen}
+{#if modal.isOpen('mindMap')}
   <MindMapView
-    {content}
+    content={workspace.content}
     {theme}
     onNavigate={handleTocNavigate}
-    onClose={() => mindMapOpen = false}
+    onClose={() => modal.close()}
   />
 {/if}
 
-{#if templateModalOpen}
+{#if modal.isOpen('templateModal')}
   <TemplateModal
     onSelect={(templateContent) => {
-      // Create a new untitled tab with the template content
+      const sep = (workspace.currentFolder ?? '').includes('/') ? '/' : '\\';
       const name = 'untitled-' + Date.now() + '.md';
-      const path = (currentFolder ?? '') + '\\' + name;
-      openFiles = [...openFiles, { path, name, content: templateContent, originalContent: '' }];
-      currentFile = path;
-      content = templateContent;
-      templateModalOpen = false;
+      const path = (workspace.currentFolder ?? '') + sep + name;
+      workspace.openFiles = [...workspace.openFiles, { path, name, content: templateContent, originalContent: '' }];
+      workspace.currentFile = path;
+      workspace.content = templateContent;
+      modal.close();
     }}
     onSaveTemplate={(name) => {
-      if (content) {
-        templateManager.saveCustom(name, content);
+      if (workspace.content) {
+        templateManager.saveCustom(name, workspace.content);
         toastManager.success('Template saved: ' + name);
       }
     }}
-    onClose={() => templateModalOpen = false}
+    onClose={() => modal.close()}
   />
 {/if}
 
-{#if imageGalleryOpen}
+{#if modal.isOpen('imageGallery')}
   <ImageGallery
-    {currentFolder}
-    onInsertImage={(md) => { insertCommand = { type: '__raw:' + md, timestamp: Date.now() }; }}
-    onClose={() => imageGalleryOpen = false}
+    currentFolder={workspace.currentFolder}
+    onInsertImage={(md) => { workspace.sendInsert('__raw:' + md); }}
+    onClose={() => modal.close()}
   />
 {/if}
 

@@ -1,7 +1,13 @@
+use once_cell::sync::Lazy;
+use regex::Regex;
 use serde::Serialize;
 use std::fs;
-use std::path::PathBuf;
-use walkdir::WalkDir;
+
+use crate::error::AppError;
+use crate::utils::{collect_md_files, validate_directory};
+
+static WIKI_LINK_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\[\[([^\]]+)\]\]").expect("invalid wiki link regex"));
 
 #[derive(Serialize, Clone)]
 pub struct WikiLink {
@@ -19,42 +25,25 @@ pub struct WikiScanResult {
 /// Scan all .md files in a folder for [[wiki links]].
 /// Returns all found links and the list of .md file paths.
 #[tauri::command]
-pub fn scan_wiki_links(folder: String) -> Result<WikiScanResult, String> {
-    let root = PathBuf::from(&folder);
-    if !root.is_dir() {
-        return Err(format!("'{}' is not a directory", folder));
-    }
-
-    let md_files: Vec<PathBuf> = WalkDir::new(&root)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.file_type().is_file()
-                && e.path()
-                    .extension()
-                    .map(|ext| ext.eq_ignore_ascii_case("md"))
-                    .unwrap_or(false)
-        })
-        .map(|e| e.into_path())
-        .collect();
+pub fn scan_wiki_links(folder: String) -> Result<WikiScanResult, AppError> {
+    let root = validate_directory(&folder)?;
+    let md_files = collect_md_files(&root);
 
     let mut links: Vec<WikiLink> = Vec::new();
     let mut files: Vec<String> = Vec::new();
 
-    let re = regex::Regex::new(r"\[\[([^\]]+)\]\]").unwrap_or_else(|_| {
-        // Fallback: this should never fail for this simple pattern
-        regex::Regex::new(r"\[\[([^\]]+)\]\]").unwrap()
-    });
-
     for md_path in &md_files {
-        let path_str = md_path.to_string_lossy().to_string();
+        let path_str = md_path.to_string_lossy().into_owned();
         files.push(path_str.clone());
 
         if let Ok(content) = fs::read_to_string(md_path) {
-            for cap in re.captures_iter(&content) {
+            for cap in WIKI_LINK_RE.captures_iter(&content) {
                 let inner = cap[1].to_string();
                 let (target, alias) = if let Some(pos) = inner.find('|') {
-                    (inner[..pos].trim().to_string(), Some(inner[pos + 1..].trim().to_string()))
+                    (
+                        inner[..pos].trim().to_string(),
+                        Some(inner[pos + 1..].trim().to_string()),
+                    )
                 } else {
                     (inner.trim().to_string(), None)
                 };

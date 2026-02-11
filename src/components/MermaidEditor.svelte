@@ -393,7 +393,6 @@ Operations,Support,8000`,
           oninput={handleInput}
           spellcheck="false"
           autocomplete="off"
-          autocorrect="off"
           autocapitalize="off"
           placeholder="Enter mermaid diagram code..."
         ></textarea>

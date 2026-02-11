@@ -1,6 +1,8 @@
 use serde::Serialize;
 use std::fs;
-use walkdir::WalkDir;
+
+use crate::error::AppError;
+use crate::utils::{collect_md_files, validate_directory};
 
 #[derive(Serialize, Clone)]
 pub struct SearchResult {
@@ -24,10 +26,12 @@ pub fn search_files(
     folder: String,
     query: String,
     case_sensitive: bool,
-) -> Result<Vec<SearchResult>, String> {
+) -> Result<Vec<SearchResult>, AppError> {
     if query.is_empty() {
         return Ok(Vec::new());
     }
+
+    let root = validate_directory(&folder)?;
 
     let search_query = if case_sensitive {
         query.clone()
@@ -37,33 +41,19 @@ pub fn search_files(
 
     let mut results: Vec<SearchResult> = Vec::new();
 
-    // Collect and sort markdown file paths so output is deterministic.
-    let mut md_files: Vec<std::path::PathBuf> = WalkDir::new(&folder)
-        .into_iter()
-        .filter_map(|entry| entry.ok())
-        .filter(|entry| {
-            entry.file_type().is_file()
-                && entry
-                    .path()
-                    .extension()
-                    .map(|ext| ext.eq_ignore_ascii_case("md"))
-                    .unwrap_or(false)
-        })
-        .map(|entry| entry.into_path())
-        .collect();
-
+    let mut md_files = collect_md_files(&root);
     md_files.sort();
 
     'outer: for file_path in md_files {
         let content = match fs::read_to_string(&file_path) {
             Ok(c) => c,
-            Err(_) => continue, // skip unreadable files
+            Err(_) => continue,
         };
 
-        let file_path_str = file_path.to_string_lossy().to_string();
+        let file_path_str = file_path.to_string_lossy().into_owned();
         let file_name = file_path
             .file_name()
-            .map(|n| n.to_string_lossy().to_string())
+            .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
 
         for (line_idx, line) in content.lines().enumerate() {
@@ -81,7 +71,7 @@ pub fn search_files(
                 results.push(SearchResult {
                     file_path: file_path_str.clone(),
                     file_name: file_name.clone(),
-                    line_number: line_idx + 1, // 1-based
+                    line_number: line_idx + 1,
                     line_content: line.to_string(),
                     match_start,
                     match_end,
@@ -95,9 +85,6 @@ pub fn search_files(
             }
         }
     }
-
-    // Results are already sorted by file path (files were sorted) then line number
-    // (lines iterated in order), so no additional sort is needed.
 
     Ok(results)
 }

@@ -6,7 +6,8 @@ use std::time::Duration;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
-use walkdir::WalkDir;
+
+use crate::utils::is_markdown_file;
 
 #[derive(Serialize, Clone)]
 pub struct FileChangeEvent {
@@ -16,25 +17,35 @@ pub struct FileChangeEvent {
 
 static WATCHER_RUNNING: Mutex<bool> = Mutex::new(false);
 
+/// Helper to read the watcher flag safely even if the mutex was poisoned.
+fn is_running() -> bool {
+    match WATCHER_RUNNING.lock() {
+        Ok(guard) => *guard,
+        Err(poisoned) => *poisoned.into_inner(),
+    }
+}
+
+/// Helper to set the watcher flag safely even if the mutex was poisoned.
+fn set_running(val: bool) {
+    match WATCHER_RUNNING.lock() {
+        Ok(mut guard) => *guard = val,
+        Err(poisoned) => *poisoned.into_inner() = val,
+    }
+}
+
 /// Starts polling the given `folder` for `.md` file changes every 2 seconds.
 /// Any previous watcher is stopped before starting a new one.
 /// Detected changes are emitted as a `file-changes` event to the frontend.
 #[tauri::command]
 pub fn start_watching(app: AppHandle, folder: String) -> Result<(), String> {
     // Stop any existing watcher
-    {
-        let mut running = WATCHER_RUNNING.lock().map_err(|e| e.to_string())?;
-        *running = false;
-    }
+    set_running(false);
 
     // Give the old thread a moment to exit
     thread::sleep(Duration::from_millis(100));
 
     // Mark the new watcher as running
-    {
-        let mut running = WATCHER_RUNNING.lock().map_err(|e| e.to_string())?;
-        *running = true;
-    }
+    set_running(true);
 
     thread::spawn(move || {
         let mut file_hashes: HashMap<String, u64> = HashMap::new();
@@ -43,12 +54,8 @@ pub fn start_watching(app: AppHandle, folder: String) -> Result<(), String> {
         scan_files(&folder, &mut file_hashes);
 
         loop {
-            // Check if we should stop
-            {
-                let running = WATCHER_RUNNING.lock().unwrap_or_else(|e| e.into_inner());
-                if !*running {
-                    break;
-                }
+            if !is_running() {
+                break;
             }
 
             thread::sleep(Duration::from_secs(2));
@@ -101,33 +108,30 @@ pub fn start_watching(app: AppHandle, folder: String) -> Result<(), String> {
 /// Stops the background file-watching thread.
 #[tauri::command]
 pub fn stop_watching() -> Result<(), String> {
-    let mut running = WATCHER_RUNNING.lock().map_err(|e| e.to_string())?;
-    *running = false;
+    set_running(false);
     Ok(())
 }
 
 /// Walks `folder` recursively and records every `.md` file together with a
 /// simple hash derived from its size and last-modified timestamp.
 fn scan_files(folder: &str, files: &mut HashMap<String, u64>) {
-    for entry in WalkDir::new(folder).into_iter().filter_map(|e| e.ok()) {
-        if entry.file_type().is_file() {
-            if let Some(ext) = entry.path().extension() {
-                if ext.eq_ignore_ascii_case("md") {
-                    let path = entry.path().to_string_lossy().to_string();
-                    // Use file metadata (modified time XOR size) as a lightweight hash
-                    if let Ok(metadata) = fs::metadata(entry.path()) {
-                        let hash = metadata.len()
-                            ^ metadata
-                                .modified()
-                                .map(|t| {
-                                    t.duration_since(std::time::UNIX_EPOCH)
-                                        .unwrap_or_default()
-                                        .as_secs()
-                                })
-                                .unwrap_or(0);
-                        files.insert(path, hash);
-                    }
-                }
+    for entry in walkdir::WalkDir::new(folder)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        if entry.file_type().is_file() && is_markdown_file(entry.path()) {
+            let path = entry.path().to_string_lossy().into_owned();
+            if let Ok(metadata) = fs::metadata(entry.path()) {
+                let hash = metadata.len()
+                    ^ metadata
+                        .modified()
+                        .map(|t| {
+                            t.duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_secs()
+                        })
+                        .unwrap_or(0);
+                files.insert(path, hash);
             }
         }
     }
