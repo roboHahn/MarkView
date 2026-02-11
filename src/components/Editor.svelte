@@ -14,6 +14,7 @@
   import { spellCheckExtension } from '$lib/spellcheck';
   import { createMinimapExtension } from '$lib/minimap';
   import { createInlineImagesExtension } from '$lib/inline-images';
+  import { pluginManager } from '$lib/plugins.svelte';
   import '../styles/codemirror.css';
   import '../styles/focus-mode.css';
 
@@ -58,6 +59,7 @@
   let spellCheckCompartment = new Compartment();
   let minimapCompartment = new Compartment();
   let inlineImagesCompartment = new Compartment();
+  let pluginCompartment = new Compartment();
 
   // Track whether we are currently dispatching an internal update,
   // so we can ignore the external content prop echo.
@@ -221,6 +223,7 @@
         spellCheckCompartment.of(spellCheckExtension(spellCheck)),
         minimapCompartment.of(createMinimapExtension(minimapEnabled)),
         inlineImagesCompartment.of(createInlineImagesExtension(inlineImages)),
+        pluginCompartment.of([]),
         keymap.of([
           ...defaultKeymap,
           ...historyKeymap,
@@ -387,6 +390,15 @@
     if (!editorView) return;
     editorView.dispatch({
       effects: inlineImagesCompartment.reconfigure(createInlineImagesExtension(enabled))
+    });
+  });
+
+  // Reconfigure plugin extensions dynamically
+  $effect(() => {
+    const extensions = pluginManager.getEditorExtensions();
+    if (!editorView) return;
+    editorView.dispatch({
+      effects: pluginCompartment.reconfigure(extensions)
     });
   });
 

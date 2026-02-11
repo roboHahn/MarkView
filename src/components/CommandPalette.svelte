@@ -1,9 +1,12 @@
 <script lang="ts">
+  import { pluginManager } from '$lib/plugins.svelte';
+
   interface Command {
     id: string;
     name: string;
     shortcut?: string;
     category: string;
+    execute?: () => void;
   }
 
   interface Props {
@@ -62,6 +65,21 @@
     { id: 'tools.imageGallery', name: 'Image Gallery', shortcut: 'Ctrl+Shift+I', category: 'Tools' },
   ];
 
+  // Merge built-in commands with plugin commands
+  let allCommands = $derived.by(() => {
+    const merged: Command[] = [...commands];
+    const pluginCommands = pluginManager.getCommands();
+    for (const cmd of pluginCommands) {
+      merged.push({
+        id: cmd.id,
+        name: cmd.name,
+        category: 'Plugins',
+        execute: cmd.execute,
+      });
+    }
+    return merged;
+  });
+
   /**
    * Simple fuzzy match: checks whether all characters in the pattern
    * appear in the target string in order (case-insensitive).
@@ -100,10 +118,10 @@
 
   let filtered = $derived.by(() => {
     const query = search.trim();
-    if (query === '') return commands;
+    if (query === '') return allCommands;
 
     const scored: { command: Command; score: number }[] = [];
-    for (const command of commands) {
+    for (const command of allCommands) {
       // Match against command name and category
       const nameScore = fuzzyMatch(query, command.name);
       const catScore = fuzzyMatch(query, command.category + ' ' + command.name);
@@ -170,7 +188,13 @@
   }
 
   function executeCommand(commandId: string) {
-    onExecute(commandId);
+    // Check if this is a plugin command with direct execution
+    const cmd = allCommands.find(c => c.id === commandId);
+    if (cmd?.execute) {
+      cmd.execute();
+    } else {
+      onExecute(commandId);
+    }
     onClose();
   }
 

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte';
-  import { renderMarkdown } from '$lib/markdown';
+  import { renderMarkdown, rebuildWithPlugins } from '$lib/markdown';
+  import { pluginManager } from '$lib/plugins.svelte';
   import type { Theme } from '$lib/theme';
   import { customCss } from '$lib/custom-css.svelte';
   import mermaid from 'mermaid';
@@ -217,15 +218,34 @@
     }
   }
 
+  // Rebuild markdown-it when plugins change
+  $effect(() => {
+    const mdPlugins = pluginManager.getMarkdownPlugins();
+    rebuildWithPlugins(mdPlugins);
+  });
+
   // Debounced rendering of markdown content
   $effect(() => {
     // Access content and theme to track them as dependencies
     const currentContent = content;
     const currentTheme = theme;
+    // Track plugin changes so we re-render when plugins toggle
+    const previewTransforms = pluginManager.getPreviewTransforms();
 
     const timer = setTimeout(async () => {
       initMermaid(currentTheme);
-      renderedHtml = renderMarkdown(currentContent);
+      let html = renderMarkdown(currentContent);
+
+      // Apply plugin preview transforms
+      for (const transform of previewTransforms) {
+        try {
+          html = transform(html);
+        } catch {
+          // Prevent a broken plugin from crashing preview
+        }
+      }
+
+      renderedHtml = html;
 
       // Bump mermaid ID so each render gets unique IDs
       mermaidId++;

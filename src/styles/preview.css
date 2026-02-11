@@ -307,3 +307,167 @@
   color: var(--accent-hover);
   text-decoration: underline;
 }
+
+/* ============ Plugin Styles ============ */
+
+/* Reading Time banner */
+.preview-content .plugin-reading-time {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  margin-bottom: 16px;
+  background: var(--bg-editor);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.82em;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+/* Code Copy Button */
+.preview-content .plugin-code-wrapper {
+  position: relative;
+}
+
+.preview-content .plugin-copy-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+  z-index: 2;
+}
+
+.preview-content .plugin-code-wrapper:hover .plugin-copy-btn {
+  opacity: 1;
+}
+
+.preview-content .plugin-copy-btn:hover {
+  background: var(--hover-bg);
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+/* Custom Containers */
+.preview-content .plugin-container {
+  margin-bottom: 1em;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.preview-content .plugin-container-title {
+  padding: 8px 14px;
+  font-weight: 600;
+  font-size: 0.85em;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.preview-content .plugin-container-content {
+  padding: 12px 14px;
+}
+
+.preview-content .plugin-container-content p:last-child {
+  margin-bottom: 0;
+}
+
+.preview-content .plugin-container-note {
+  border-color: #4299e1;
+  background: rgba(66, 153, 225, 0.06);
+}
+
+.preview-content .plugin-container-note .plugin-container-title {
+  background: rgba(66, 153, 225, 0.12);
+  color: #4299e1;
+}
+
+.preview-content .plugin-container-warning {
+  border-color: #ecc94b;
+  background: rgba(236, 201, 75, 0.06);
+}
+
+.preview-content .plugin-container-warning .plugin-container-title {
+  background: rgba(236, 201, 75, 0.12);
+  color: #d69e2e;
+}
+
+.preview-content .plugin-container-tip {
+  border-color: #48bb78;
+  background: rgba(72, 187, 120, 0.06);
+}
+
+.preview-content .plugin-container-tip .plugin-container-title {
+  background: rgba(72, 187, 120, 0.12);
+  color: #48bb78;
+}
+
+.preview-content .plugin-container-danger {
+  border-color: #f56565;
+  background: rgba(245, 101, 101, 0.06);
+}
+
+.preview-content .plugin-container-danger .plugin-container-title {
+  background: rgba(245, 101, 101, 0.12);
+  color: #f56565;
+}
+
+.preview-content .plugin-container-info {
+  border-color: #63b3ed;
+  background: rgba(99, 179, 237, 0.06);
+}
+
+.preview-content .plugin-container-info .plugin-container-title {
+  background: rgba(99, 179, 237, 0.12);
+  color: #63b3ed;
+}
+
+/* Heading Anchors */
+.preview-content .plugin-heading-anchor {
+  display: inline-block;
+  margin-left: 8px;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-weight: 400;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.preview-content h1:hover .plugin-heading-anchor,
+.preview-content h2:hover .plugin-heading-anchor,
+.preview-content h3:hover .plugin-heading-anchor,
+.preview-content h4:hover .plugin-heading-anchor,
+.preview-content h5:hover .plugin-heading-anchor,
+.preview-content h6:hover .plugin-heading-anchor {
+  opacity: 1;
+}
+
+.preview-content .plugin-heading-anchor:hover {
+  color: var(--accent);
+}
+
+/* Highlight / mark */
+.preview-content mark {
+  background: rgba(236, 201, 75, 0.3);
+  color: inherit;
+  padding: 0.1em 0.2em;
+  border-radius: 2px;
+}
+
+/* Word Counter footer */
+.preview-content .plugin-word-counter {
+  margin-top: 24px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+  font-size: 0.8em;
+  color: var(--text-muted);
+  text-align: center;
+}

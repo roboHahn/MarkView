@@ -37,6 +37,8 @@
   import TemplateModal from '../components/TemplateModal.svelte';
   import ImageGallery from '../components/ImageGallery.svelte';
   import { templateManager } from '$lib/templates';
+  import { pluginManager } from '$lib/plugins.svelte';
+  import { builtinPlugins } from '$lib/builtin-plugins';
   import StatusBar from '../components/StatusBar.svelte';
   import Toast from '../components/Toast.svelte';
   import { settingsManager } from '$lib/settings.svelte';
@@ -140,6 +142,11 @@
     const themeDef = getTheme(currentThemeId);
     theme = themeDef.type;
     applyTheme(themeDef);
+
+    // Register built-in plugins
+    for (const plugin of builtinPlugins) {
+      pluginManager.register(plugin);
+    }
 
     return () => {
       stopWatching().catch(() => {});
@@ -524,7 +531,14 @@
 
   // --- Mermaid editor ---
   function openMermaidEditor() {
-    mermaidEditorCode = '```mermaid\ngraph TD\n    A[Start] --> B[End]\n```';
+    const sel = selectedText.trim();
+    if (sel) {
+      // Strip ```mermaid fences if present
+      const fenceMatch = sel.match(/^```mermaid\s*\n([\s\S]*?)```\s*$/);
+      mermaidEditorCode = fenceMatch ? fenceMatch[1].trim() : sel;
+    } else {
+      mermaidEditorCode = 'graph TD\n    A[Start] --> B[End]';
+    }
     mermaidEditorOpen = true;
   }
 
@@ -949,7 +963,7 @@
 
 {#if mermaidEditorOpen}
   <MermaidEditor
-    initialCode={"graph TD\n    A[Start] --> B[End]"}
+    initialCode={mermaidEditorCode}
     onSave={handleMermaidSave}
     onClose={() => mermaidEditorOpen = false}
     {theme}

@@ -143,6 +143,42 @@ class PluginManager {
   getEnabled(): MarkViewPlugin[] {
     return this.plugins.filter((p) => p.enabled);
   }
+
+  /**
+   * Return all enabled markdown-it plugins.
+   */
+  getMarkdownPlugins(): any[] {
+    return this.plugins
+      .filter((p) => p.enabled && p.markdownPlugin)
+      .map((p) => p.markdownPlugin);
+  }
+
+  /**
+   * Return all enabled CodeMirror editor extensions.
+   */
+  getEditorExtensions(): any[] {
+    return this.plugins
+      .filter((p) => p.enabled && p.editorExtension)
+      .map((p) => p.editorExtension);
+  }
+
+  /**
+   * Return all enabled preview transform functions.
+   */
+  getPreviewTransforms(): ((html: string) => string)[] {
+    return this.plugins
+      .filter((p) => p.enabled && p.previewTransform)
+      .map((p) => p.previewTransform!);
+  }
+
+  /**
+   * Return all enabled plugin commands.
+   */
+  getCommands(): PluginCommand[] {
+    return this.plugins
+      .filter((p) => p.enabled && p.commands)
+      .flatMap((p) => p.commands!);
+  }
 }
 
 export const pluginManager = new PluginManager();
